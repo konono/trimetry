@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/konono/trimetry/compare/v0.1.0...v0.2.0) (2026-07-30)
+
+
+### Features
+
+* trimetry - LLM agent benchmarking framework ([2893d5d](https://github.com/konono/trimetry/commit/2893d5d90a1ef64930706504a9052c46fc9b454b))
+
 ## [0.1.0] - 2026-07-30
 
 ### Added
