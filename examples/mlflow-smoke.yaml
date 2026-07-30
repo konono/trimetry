@@ -1,0 +1,36 @@
+benchmark:
+  name: mlflow-smoke
+  trials: 2
+  concurrency: 1
+  timeout_seconds: 120
+  retries: 0
+  environment: local
+
+scenarios:
+  - id: simple-greeting
+    version: "1"
+    name: Simple Greeting
+    input: "Hello, what model are you?"
+
+models:
+  - name: your-model
+    provider: your-provider
+    parameters:
+      temperature: 0
+
+adapter:
+  type: opencode
+  options:
+    command: opencode
+    working_directory: "."
+
+telemetry:
+  enabled: true
+  provider: mlflow
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

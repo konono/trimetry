@@ -1,0 +1,16 @@
+# Binary
+trimetry
+
+# Benchmark results (may contain internal URLs)
+benchmark-results/
+
+# OS files
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Go
+vendor/

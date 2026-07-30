@@ -1,0 +1,43 @@
+benchmark:
+  name: example-benchmark
+  trials: 3
+  concurrency: 1
+  timeout_seconds: 60
+  retries: 0
+  environment: local
+
+scenarios:
+  - id: simple-greeting
+    version: "1"
+    name: Simple Greeting
+    input: "Hello, what model are you?"
+
+  - id: arithmetic
+    version: "1"
+    name: Arithmetic Test
+    input: "What is 2 + 2?"
+    expected_output: "4"
+
+  - id: multi-step
+    version: "1"
+    name: Multi-Step Reasoning
+    input: "List all .yaml files in the current directory and count them"
+    timeout_seconds: 120
+
+models:
+  - name: fake-model
+    provider: fake
+    parameters:
+      temperature: 0
+
+adapter:
+  type: fake
+
+telemetry:
+  enabled: false
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown
