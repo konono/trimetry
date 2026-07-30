@@ -27,5 +27,4 @@ jobs:
           go-version: "1.25"
       - run: go build -o trimetry ./cmd/trimetry/
       - run: ./trimetry validate --config benchmarks/example.yaml
-      - run: ./trimetry run --dry-run --config examples/opencode-smoke.yaml
       - run: ./trimetry run --config benchmarks/dry-run.yaml

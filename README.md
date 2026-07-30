@@ -38,41 +38,125 @@ Trimetry は同一条件で複数回試行し、偶然性を排除して変更�
 ### 前提条件
 
 - Go 1.25 以上（opentelemetry 依存による要件）
+- ベンチマーク対象の LLM エージェント CLI（使用する adapter に応じてインストール）:
+
+| Adapter | 必要な CLI | 実行されるコマンド | インストール |
+|---|---|---|---|
+| `opencode` | [opencode](https://github.com/opencode-ai/opencode) | `opencode run --format json <input>` | `npm i -g @anthropic-ai/opencode` |
+| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude -p --output-format stream-json <input>` | `npm i -g @anthropic-ai/claude-code` |
+| `codex` | [Codex](https://github.com/openai/codex) | `codex exec --json <input>` | `npm i -g @openai/codex` |
+| `cursor` | [Cursor CLI](https://docs.cursor.com/cli) | `cursor -p --output-format stream-json <input>` | Cursor アプリから CLI をインストール |
+| `fake` | なし | 内蔵モック（外部依存なし） | — |
+
+## インストール
+
+```bash
+go install github.com/konono/trimetry/cmd/trimetry@latest
+```
+
+バージョン指定:
+
+```bash
+go install github.com/konono/trimetry/cmd/trimetry@v0.1.0
+```
+
+または [GitHub Releases](https://github.com/konono/trimetry/releases) からビルド済みバイナリをダウンロードできます。
 
 ## Quick Start
 
+### 1. 動作確認（外部依存なし）
+
 ```bash
-# ビルド
+# ソースからビルドする場合
 make build
 
-# リポジトリ単体で動くドライラン（外部依存なし）
-make dry-run
+# ドライラン（fake adapter で即実行できる）
+trimetry run --config benchmarks/dry-run.yaml
 
-# 全テスト実行
-make test
+# 設定ファイルのバリデーションだけ試す
+trimetry validate --config benchmarks/example.yaml
 ```
 
-### 外部 LLM エージェントを使う場合
+### 2. 自分のベンチマークを作る
 
-`examples/` にサンプル設定があります。
+YAML ファイルを 1 つ書くだけで始められる。最小構成:
+
+```yaml
+# benchmarks/my-first.yaml
+benchmark:
+  name: my-first-benchmark
+  trials: 3                # 同一条件で何回試行するか
+  timeout_seconds: 120
+
+scenarios:
+  - id: code-gen
+    version: "1"
+    name: Code Generation
+    input: "Write a Python function that reverses a string"
+    expected_output: "reverse"   # 出力にこの文字列が含まれるか（accuracy 評価）
+
+models:
+  - name: claude-sonnet-4
+    provider: anthropic
+    parameters:
+      temperature: 0
+
+adapter:
+  type: opencode             # 使う LLM エージェント（下表参照）
+  options:
+    command: opencode
+    working_directory: "."
+
+telemetry:
+  enabled: false             # Langfuse/MLflow を使わないならまず false で
+
+report:
+  output_directory: benchmark-results
+  formats: [json, markdown]
+```
 
 ```bash
-# 環境変数を設定
+trimetry run --config benchmarks/my-first.yaml
+```
+
+実行後、`benchmark-results/<runId>/summary.md` に結果レポートが生成される。
+
+### 3. 結果を比較する
+
+モデルやスキルを変更して 2 回実行し、差分を見る:
+
+```bash
+# 変更前
+trimetry run --config benchmarks/my-first.yaml
+# → benchmark-results/run-aaa/summary.json
+
+# 変更後（モデルや設定を変えて再実行）
+trimetry run --config benchmarks/my-first.yaml
+# → benchmark-results/run-bbb/summary.json
+
+# 比較
+trimetry compare \
+  --baseline benchmark-results/run-aaa/summary.json \
+  --candidate benchmark-results/run-bbb/summary.json
+```
+
+### 4. テレメトリを有効にする（Langfuse / MLflow）
+
+```bash
 cp .env.example .env
 # .env を編集: LANGFUSE_* または MLFLOW_* を設定
-
-# opencode + Langfuse
-./trimetry run --config examples/opencode-smoke.yaml
-
-# opencode + MLflow
-./trimetry run --config examples/mlflow-smoke.yaml
-
-# 結果比較
-./trimetry compare \
-  --baseline benchmark-results/<run-a>/summary.json \
-  --candidate benchmark-results/<run-b>/summary.json \
-  --output comparison-report  # 任意: JSON + Markdown ファイル出力
 ```
+
+設定ファイルの `telemetry` セクションを有効化:
+
+```yaml
+telemetry:
+  enabled: true
+  provider: langfuse       # または mlflow
+  flush_on_trial_end: true
+```
+
+`examples/` にサンプル設定があります（`opencode-smoke.yaml`, `mlflow-smoke.yaml`）。
 
 ## CLI
 
