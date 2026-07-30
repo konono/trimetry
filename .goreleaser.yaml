@@ -1,0 +1,31 @@
+version: 2
+
+release:
+  mode: keep-existing
+
+builds:
+  - binary: trimetry
+    main: ./cmd/trimetry/
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/konono/trimetry/internal/version.Version={{ .Version }}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc

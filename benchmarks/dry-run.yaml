@@ -1,0 +1,36 @@
+benchmark:
+  name: dry-run-test
+  trials: 3
+  concurrency: 2
+  timeout_seconds: 60
+  retries: 0
+  environment: local
+
+scenarios:
+  - id: simple-greeting
+    version: "1"
+    name: Simple Greeting
+    input: "Hello, what model are you?"
+
+  - id: tool-use-test
+    version: "1"
+    name: Tool Use Test
+    input: "List files in this directory"
+
+models:
+  - name: fake-model
+    provider: fake
+    parameters:
+      temperature: 0
+
+adapter:
+  type: fake
+
+telemetry:
+  enabled: false
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

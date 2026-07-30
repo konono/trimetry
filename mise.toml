@@ -1,0 +1,60 @@
+[tools]
+go = "latest"
+node = "lts"
+opencode = "latest"
+
+[env]
+# Langfuse / MLflow の認証情報は .env に記載してください
+_.file = ".env"
+
+[tasks.build]
+description = "Go バイナリをビルド"
+run = "go build -o trimetry ./cmd/trimetry/"
+
+[tasks.test]
+description = "テストを実行"
+run = "go test ./..."
+
+[tasks.setup-npmrc]
+description = "~/.npmrc に GitHub Packages レジストリを設定"
+run = '''
+if ! grep -q "@konono:registry" ~/.npmrc 2>/dev/null; then
+  echo "@konono:registry=https://npm.pkg.github.com/" >> ~/.npmrc
+  echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> ~/.npmrc
+  echo "==> ~/.npmrc に @konono スコープを追加"
+else
+  echo "==> 設定済み"
+fi
+'''
+
+[tasks.setup-langfuse]
+description = "opencode + Langfuse プラグインをセットアップ"
+depends = ["setup-npmrc"]
+run = """
+echo "==> [1/2] Langfuse/MLflow 旧プラグイン削除 (競合回避)"
+rm -rf ~/.cache/opencode/packages/@konono 2>/dev/null || true
+rm -rf ~/.cache/opencode/packages/@mlflow 2>/dev/null || true
+
+echo "==> [2/2] Langfuse プラグインインストール"
+opencode plugin @konono/opencode-plugin-langfuse -f
+
+echo ""
+echo "==> Setup complete!"
+echo "    .env に LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定してください"
+"""
+
+[tasks.setup-mlflow]
+description = "opencode + MLflow プラグインをセットアップ (Langfuse プラグインは削除)"
+depends = ["setup-npmrc"]
+run = """
+echo "==> [1/2] Langfuse/MLflow 旧プラグイン削除 (競合回避)"
+rm -rf ~/.cache/opencode/packages/@konono 2>/dev/null || true
+rm -rf ~/.cache/opencode/packages/@mlflow 2>/dev/null || true
+
+echo "==> [2/2] MLflow プラグインインストール"
+opencode plugin @konono/opencode-plugin-mlflow -f
+
+echo ""
+echo "==> Setup complete!"
+echo "    .env に MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_ID を設定してください"
+"""
