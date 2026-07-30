@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/konono/trimetry/compare/v0.1.0...v0.2.0) (2026-07-30)
+
+
+### Features
+
+* add CLI entry point, release pipeline, and documentation ([b321441](https://github.com/konono/trimetry/commit/b3214412ca04c8a2de6d5b483baae45675ef45a4))
+
 ## [0.1.0] - 2026-07-30
 
 ### Added
