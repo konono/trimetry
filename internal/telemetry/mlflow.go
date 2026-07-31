@@ -210,7 +210,13 @@ func (a *MLflowAdapter) FinishTrial(result TrialResult) {
 
 func (a *MLflowAdapter) emitStepSpan(parentCtx context.Context, tracer trace.Tracer, idx int, step adapter.StepDetail, defaultModel string) {
 	stepStart := time.UnixMilli(step.StartMs)
+	if step.StartMs <= 0 {
+		stepStart = time.Now()
+	}
 	stepEnd := time.UnixMilli(step.EndMs)
+	if step.EndMs <= 0 {
+		stepEnd = stepStart
+	}
 
 	inputJSON, _ := json.Marshal(step.Input)
 	outputJSON, _ := json.Marshal(step.Output)

@@ -70,6 +70,7 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, input string, ec ExecutionC
 
 	raw := runCLI(ctx, args, a.WorkingDir, ec)
 	parsed := parseClaudeJSON(raw.Stdout)
+	backfillStepTimestamps(parsed.Steps, raw.StartedAt, raw.FinishedAt)
 	return toExecutionResult(raw, parsed)
 }
 
@@ -291,6 +292,31 @@ func finalizeGeneration(gen *pendingGeneration, endMs int64, result *parsedOutpu
 
 	result.Steps = append(result.Steps, gen.step)
 	result.Steps = append(result.Steps, gen.tools...)
+}
+
+func backfillStepTimestamps(steps []StepDetail, startedAt, finishedAt time.Time) {
+	startMs := startedAt.UnixMilli()
+	endMs := finishedAt.UnixMilli()
+	for i := range steps {
+		changed := false
+		if steps[i].StartMs <= 0 {
+			steps[i].StartMs = startMs
+			changed = true
+		}
+		if steps[i].EndMs <= 0 {
+			steps[i].EndMs = endMs
+			changed = true
+		}
+		if changed && steps[i].DurationMs <= 0 {
+			steps[i].DurationMs = steps[i].EndMs - steps[i].StartMs
+			if steps[i].Type == StepTypeGeneration {
+				steps[i].LLMInferenceMs = steps[i].DurationMs - steps[i].ToolTimeMs
+				if steps[i].LLMInferenceMs < 0 {
+					steps[i].LLMInferenceMs = 0
+				}
+			}
+		}
+	}
 }
 
 func parseTimestampMs(ts string) int64 {

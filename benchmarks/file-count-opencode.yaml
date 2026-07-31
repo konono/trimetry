@@ -1,0 +1,47 @@
+benchmark:
+  name: file-count
+  trials: 5
+  concurrency: 1
+  timeout_seconds: 120
+  retries: 0
+  environment: local
+
+scenarios:
+  - id: count-yaml-files
+    version: "1"
+    name: Count Files
+    input: "カレントディレクトリ配下にあるファイルの数を数えて、数だけ答えて"
+    expected_output: "14"
+    expected_tool_policy:
+      required:
+        - glob
+    evaluator_names:
+      - completion
+      - non_empty
+      - expected_tool
+
+models:
+  - name: qwen3-6-35b-a3b
+    provider: vllm
+    parameters:
+      temperature: 0
+    pricing:
+      input_per_m_token: 0.20
+      output_per_m_token: 0.60
+
+adapter:
+  type: opencode
+  options:
+    command: opencode
+    working_directory: "/Users/kono/gitrepo/tel_rhoai/rhoai_manifest/rhoai-3.4_ocp-4.22"
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

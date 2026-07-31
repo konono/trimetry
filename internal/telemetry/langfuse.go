@@ -196,7 +196,14 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 
 func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step adapter.StepDetail) {
 	startTime := time.UnixMilli(step.StartMs)
-	endTime := time.UnixMilli(step.EndMs)
+	if step.StartMs <= 0 {
+		startTime = time.Now()
+	}
+	var endTimePtr *time.Time
+	if step.EndMs > 0 {
+		et := time.UnixMilli(step.EndMs)
+		endTimePtr = &et
+	}
 
 	meta := map[string]any{
 		"stepIndex":      idx,
@@ -226,7 +233,7 @@ func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step
 		TraceID:   traceID,
 		Name:      step.Name,
 		StartTime: startTime,
-		EndTime:   &endTime,
+		EndTime:   endTimePtr,
 		Input:     step.Input,
 		Output:    step.Output,
 		Metadata:  meta,
@@ -254,7 +261,14 @@ func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step
 
 func (a *LangfuseAdapter) addToolObservation(traceID string, idx int, step adapter.StepDetail) {
 	startTime := time.UnixMilli(step.StartMs)
-	endTime := time.UnixMilli(step.EndMs)
+	if step.StartMs <= 0 {
+		startTime = time.Now()
+	}
+	var endTimePtr *time.Time
+	if step.EndMs > 0 {
+		et := time.UnixMilli(step.EndMs)
+		endTimePtr = &et
+	}
 
 	meta := map[string]any{
 		"stepIndex":  idx,
@@ -282,7 +296,7 @@ func (a *LangfuseAdapter) addToolObservation(traceID string, idx int, step adapt
 		TraceID:   traceID,
 		Name:      step.Name,
 		StartTime: startTime,
-		EndTime:   &endTime,
+		EndTime:   endTimePtr,
 		Input:     step.Input,
 		Output:    step.Output,
 		Metadata:  meta,

@@ -1,0 +1,47 @@
+benchmark:
+  name: file-count
+  trials: 5
+  concurrency: 1
+  timeout_seconds: 120
+  retries: 0
+  environment: local
+
+scenarios:
+  - id: count-yaml-files
+    version: "1"
+    name: Count Files
+    input: "カレントディレクトリ配下にあるファイルの数を数えて、数だけ答えて"
+    expected_output: "14"
+    expected_tool_policy:
+      required:
+        - Bash
+    evaluator_names:
+      - completion
+      - non_empty
+      - expected_tool
+
+models:
+  - name: claude-sonnet-4-20250514
+    provider: anthropic
+    parameters:
+      temperature: 0
+    pricing:
+      input_per_m_token: 3.00
+      output_per_m_token: 15.00
+
+adapter:
+  type: claude
+  options:
+    command: claude
+    working_directory: "/Users/kono/gitrepo/tel_rhoai/rhoai_manifest/rhoai-3.4_ocp-4.22"
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

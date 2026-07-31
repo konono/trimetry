@@ -1,5 +1,6 @@
 [tools]
 go = "latest"
+jq = "latest"
 node = "lts"
 opencode = "latest"
 
