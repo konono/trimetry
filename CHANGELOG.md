@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/konono/trimetry/compare/v0.2.0...v0.3.0) (2026-08-03)
+
+
+### Features
+
+* MLflow/Langfuse adapter 間のテレメトリ記録を統一 ([6865e05](https://github.com/konono/trimetry/commit/6865e0502bd198a852fa76591d8f61b38861ed82))
+* MLflow/Langfuse adapter 間のテレメトリ記録を統一 ([0bef7db](https://github.com/konono/trimetry/commit/0bef7db072b7f3ca2da85633a2119e8978ae6685))
+
+
+### Bug Fixes
+
+* Claude adapter の Langfuse latency が epoch 起点で ~495,966 時間になるバグを修正 ([62b1346](https://github.com/konono/trimetry/commit/62b13463b4c097fefcd15ca193b3ab6ef717c895))
+
 ## [0.2.0](https://github.com/konono/trimetry/compare/v0.1.0...v0.2.0) (2026-07-30)
 
 
