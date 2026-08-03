@@ -393,6 +393,38 @@ mise run setup-langfuse         # Langfuse プラグイン設定
 mise run setup-mlflow           # MLflow プラグイン設定
 ```
 
+## opencode.json の設定
+
+opencode adapter でテレメトリを使う場合、プラグインのインストールに加えて `opencode.json` でプラグインを有効化する必要がある。
+
+### Langfuse
+
+```bash
+mise run setup-langfuse   # プラグインをインストール
+```
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@konono/opencode-plugin-langfuse"]
+}
+```
+
+### MLflow
+
+```bash
+mise run setup-mlflow     # プラグインをインストール
+```
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@konono/opencode-plugin-mlflow"]
+}
+```
+
+> **注意:** Langfuse と MLflow のプラグインは排他的に使用する。両方を同時に `plugin` 配列に入れないこと。
+
 ## 既知の制約
 
 - コスト推定は pricing 設定に依存 (provider 報告のコストは一部のみサポート)
