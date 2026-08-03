@@ -19,6 +19,7 @@ func NewFromConfig(cfg *config.Config) Adapter {
 			cfg.Telemetry.BaseURL,
 			cfg.Telemetry.PublicKey,
 			cfg.Telemetry.SecretKey,
+			cfg.Telemetry.TLSSkipVerify,
 		)
 	}
 }

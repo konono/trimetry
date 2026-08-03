@@ -2,17 +2,20 @@ package telemetry
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/konono/trimetry/internal/adapter"
 	"github.com/konono/trimetry/internal/id"
 	mdl "github.com/konono/trimetry/internal/model"
+	"github.com/konono/trimetry/internal/version"
 )
 
 type LangfuseAdapter struct {
@@ -26,15 +29,22 @@ type LangfuseAdapter struct {
 	scoreConfigs map[string]string // name -> configId
 }
 
-func NewLangfuseAdapter(baseURL, publicKey, secretKey string) *LangfuseAdapter {
+func NewLangfuseAdapter(baseURL, publicKey, secretKey string, tlsSkipVerify bool) *LangfuseAdapter {
+	baseURL = strings.TrimRight(baseURL, "/")
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	if tlsSkipVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
 	a := &LangfuseAdapter{
 		baseURL:      baseURL,
 		publicKey:    publicKey,
 		secretKey:    secretKey,
 		scoreConfigs: make(map[string]string),
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client:       client,
 	}
 	a.loadScoreConfigs()
 	return a
@@ -56,6 +66,7 @@ type traceCreateBody struct {
 	Timestamp time.Time      `json:"timestamp,omitempty"`
 	Input     any            `json:"input,omitempty"`
 	Output    any            `json:"output,omitempty"`
+	Release   string         `json:"release,omitempty"`
 }
 
 type generationCreateBody struct {
@@ -70,17 +81,21 @@ type generationCreateBody struct {
 	Output          any            `json:"output,omitempty"`
 	Usage           *usageBody     `json:"usage,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
+	Level           string         `json:"level,omitempty"`
+	StatusMessage   string         `json:"statusMessage,omitempty"`
 }
 
 type spanCreateBody struct {
-	ID        string         `json:"id"`
-	TraceID   string         `json:"traceId"`
-	Name      string         `json:"name"`
-	StartTime time.Time      `json:"startTime"`
-	EndTime   *time.Time     `json:"endTime,omitempty"`
-	Input     any            `json:"input,omitempty"`
-	Output    any            `json:"output,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	ID            string         `json:"id"`
+	TraceID       string         `json:"traceId"`
+	Name          string         `json:"name"`
+	StartTime     time.Time      `json:"startTime"`
+	EndTime       *time.Time     `json:"endTime,omitempty"`
+	Input         any            `json:"input,omitempty"`
+	Output        any            `json:"output,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	Level         string         `json:"level,omitempty"`
+	StatusMessage string         `json:"statusMessage,omitempty"`
 }
 
 type usageBody struct {
@@ -114,11 +129,17 @@ func (a *LangfuseAdapter) StartTrial(ctx TrialContext) {
 	if len(ctx.ModelParameters) > 0 {
 		metadata["modelParameters"] = ctx.ModelParameters
 	}
+	if ctx.BenchmarkName != "" {
+		metadata["benchmarkName"] = ctx.BenchmarkName
+	}
 
 	tags := []string{
 		"benchmark",
 		fmt.Sprintf("scenario:%s", ctx.ScenarioID),
 		fmt.Sprintf("model:%s", ctx.ModelName),
+	}
+	if ctx.BenchmarkName != "" {
+		tags = append(tags, fmt.Sprintf("benchmark:%s", ctx.BenchmarkName))
 	}
 
 	event := ingestionEvent{
@@ -133,6 +154,7 @@ func (a *LangfuseAdapter) StartTrial(ctx TrialContext) {
 			Tags:      tags,
 			Timestamp: time.Now(),
 			Input:     ctx.Input,
+			Release:   version.Version,
 		},
 	}
 
@@ -155,6 +177,12 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 		}
 		if result.Metrics.IdleMs != nil {
 			metadata["idleMs"] = *result.Metrics.IdleMs
+		}
+		if result.Metrics.EstimatedCost != nil {
+			metadata["estimatedCost"] = *result.Metrics.EstimatedCost
+		}
+		if result.Metrics.AccuracyScore != nil {
+			metadata["accuracyScore"] = *result.Metrics.AccuracyScore
 		}
 	}
 
@@ -195,14 +223,10 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 }
 
 func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step adapter.StepDetail) {
-	startTime := time.UnixMilli(step.StartMs)
-	if step.StartMs <= 0 {
-		startTime = time.Now()
-	}
+	startTime, endTime, hasEnd := stepTimeRange(step.StartMs, step.EndMs)
 	var endTimePtr *time.Time
-	if step.EndMs > 0 {
-		et := time.UnixMilli(step.EndMs)
-		endTimePtr = &et
+	if hasEnd {
+		endTimePtr = &endTime
 	}
 
 	meta := map[string]any{
@@ -239,6 +263,12 @@ func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step
 		Metadata:  meta,
 	}
 
+	level, isError := langfuseLevel(step.Status)
+	body.Level = level
+	if isError && step.Reason != "" {
+		body.StatusMessage = step.Reason
+	}
+
 	if step.Model != "" {
 		body.Model = step.Model
 	}
@@ -260,14 +290,10 @@ func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step
 }
 
 func (a *LangfuseAdapter) addToolObservation(traceID string, idx int, step adapter.StepDetail) {
-	startTime := time.UnixMilli(step.StartMs)
-	if step.StartMs <= 0 {
-		startTime = time.Now()
-	}
+	startTime, endTime, hasEnd := stepTimeRange(step.StartMs, step.EndMs)
 	var endTimePtr *time.Time
-	if step.EndMs > 0 {
-		et := time.UnixMilli(step.EndMs)
-		endTimePtr = &et
+	if hasEnd {
+		endTimePtr = &endTime
 	}
 
 	meta := map[string]any{
@@ -300,6 +326,12 @@ func (a *LangfuseAdapter) addToolObservation(traceID string, idx int, step adapt
 		Input:     step.Input,
 		Output:    step.Output,
 		Metadata:  meta,
+	}
+
+	level, isError := langfuseLevel(step.Status)
+	body.Level = level
+	if isError {
+		body.StatusMessage = fmt.Sprintf("tool %s failed", step.Name)
 	}
 
 	a.addEvent(ingestionEvent{

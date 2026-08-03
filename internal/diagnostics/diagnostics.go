@@ -99,6 +99,7 @@ func diagnoseLangfuse(cfg *config.Config) {
 		cfg.Telemetry.BaseURL,
 		cfg.Telemetry.PublicKey,
 		cfg.Telemetry.SecretKey,
+		cfg.Telemetry.TLSSkipVerify,
 	)
 
 	testTrialID, trialCtx, trialResult := newDiagnosticTrial()
