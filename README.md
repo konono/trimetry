@@ -425,6 +425,111 @@ mise run setup-mlflow     # プラグインをインストール
 
 > **注意:** Langfuse と MLflow のプラグインは排他的に使用する。両方を同時に `plugin` 配列に入れないこと。
 
+## aw コンテナでの実行
+
+[aw](https://github.com/konono/aw) の使い捨てコンテナ内で trimetry を実行できる。ベンチマーク対象リポに必要なファイルを配置し、`aw bench` で起動する。
+
+### 対象リポに必要なファイル
+
+```
+my-project/                        ← ベンチマーク対象リポ
+├── opencode.json                  ← opencode のプロバイダ設定（モデル・エンドポイント）
+├── .vllm-token                    ← API キー（opencode.json から参照）
+└── benchmarks/
+    └── file-count.yaml            ← trimetry のベンチマーク設定
+```
+
+**opencode.json** — ベンチマーク対象リポのルートに配置。プロバイダ設定とモデル定義を記述する:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://your-vllm-endpoint/v1",
+        "apiKey": "{file:.vllm-token}"
+      },
+      "models": {
+        "your-model": {
+          "name": "Your Model",
+          "limit": { "context": 32000, "output": 8000 }
+        }
+      }
+    }
+  },
+  "model": "vllm/your-model",
+  "experimental": { "openTelemetry": true }
+}
+```
+
+**benchmarks/\*.yaml** — trimetry のベンチマーク設定。`working_directory` は `.` にする:
+
+```yaml
+benchmark:
+  name: my-benchmark
+  trials: 5
+  timeout_seconds: 120
+
+scenarios:
+  - id: my-scenario
+    version: "1"
+    input: "ベンチマーク用のプロンプト"
+
+models:
+  - name: your-model
+    provider: vllm
+
+adapter:
+  type: opencode
+  options:
+    working_directory: "."
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats: [json, markdown]
+```
+
+### イメージのビルドと実行
+
+```bash
+# 1. trimetry リポでイメージビルド
+cd ~/gitrepo/trimetry
+make aw-build
+
+# 2. 対象リポに移動してベンチマーク実行
+cd ~/gitrepo/my-project
+aw bench -- trimetry run --config benchmarks/file-count.yaml
+```
+
+### イメージの中身
+
+`docker/Dockerfile` で以下をベイクしている:
+
+| コンポーネント | 用途 |
+|---|---|
+| Go (mise 経由) | trimetry のビルド・実行 |
+| trimetry | ベンチマーク実行 |
+| opencode | LLM エージェント CLI |
+| opencode-plugin-langfuse | Langfuse への詳細トレース送信 |
+| グローバル opencode 設定 | どのディレクトリでもプラグイン + OTEL が有効 |
+
+### 別環境への持ち出し
+
+```bash
+# tar に書き出し
+make aw-save
+
+# 別環境でロード
+podman load < trimetry-bench.tar
+```
+
 ## 既知の制約
 
 - コスト推定は pricing 設定に依存 (provider 報告のコストは一部のみサポート)
