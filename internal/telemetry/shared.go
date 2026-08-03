@@ -1,8 +1,30 @@
 package telemetry
 
 import (
+	"time"
+
 	"github.com/konono/trimetry/internal/adapter"
 )
+
+func stepTimeRange(startMs, endMs int64) (start time.Time, end time.Time, hasEnd bool) {
+	if startMs > 0 {
+		start = time.UnixMilli(startMs)
+	} else {
+		start = time.Now()
+	}
+	if endMs > 0 {
+		end = time.UnixMilli(endMs)
+		hasEnd = true
+	}
+	return
+}
+
+func langfuseLevel(stepStatus string) (level string, isError bool) {
+	if stepStatus == "error" {
+		return "ERROR", true
+	}
+	return "DEFAULT", false
+}
 
 func mergeEnrichmentIntoSteps(steps []adapter.StepDetail, enrichment enrichmentResult, defaultModel string) []adapter.StepDetail {
 	out := make([]adapter.StepDetail, len(steps))

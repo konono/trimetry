@@ -49,9 +49,13 @@ type mlflowTraceState struct {
 
 func NewMLflowAdapter(trackingURI, token, workspace string, tlsSkipVerify bool) *MLflowAdapter {
 	trackingURI = strings.TrimRight(trackingURI, "/")
-	transport := &http.Transport{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	if tlsSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
 	}
 	return &MLflowAdapter{
 		trackingURI:   trackingURI,
@@ -61,10 +65,7 @@ func NewMLflowAdapter(trackingURI, token, workspace string, tlsSkipVerify bool) 
 		experimentIDs: make(map[string]string),
 		traces:        make(map[string]mlflowTraceState),
 		tps:           make(map[string]*sdktrace.TracerProvider),
-		client: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: transport,
-		},
+		client:        client,
 	}
 }
 
@@ -142,6 +143,11 @@ func (a *MLflowAdapter) FinishTrial(result TrialResult) {
 		attribute.String("executionStatus", string(result.ExecutionStatus)),
 	}
 
+	if len(state.TrialCtx.ModelParameters) > 0 {
+		mpJSON, _ := json.Marshal(state.TrialCtx.ModelParameters)
+		rootAttrs = append(rootAttrs, attribute.String("benchmark.model_parameters", string(mpJSON)))
+	}
+
 	if result.Metrics != nil {
 		rootAttrs = append(rootAttrs,
 			attribute.Int64("wallTimeMs", result.Metrics.WallTimeMs),
@@ -159,6 +165,9 @@ func (a *MLflowAdapter) FinishTrial(result TrialResult) {
 		}
 		if result.Metrics.LLMLatencyMs != nil {
 			rootAttrs = append(rootAttrs, attribute.Int64("llmLatencyMs", *result.Metrics.LLMLatencyMs))
+		}
+		if result.Metrics.IdleMs != nil {
+			rootAttrs = append(rootAttrs, attribute.Int64("idleMs", *result.Metrics.IdleMs))
 		}
 		if result.Metrics.EstimatedCost != nil {
 			rootAttrs = append(rootAttrs, attribute.Float64("estimatedCost", *result.Metrics.EstimatedCost))
@@ -185,6 +194,10 @@ func (a *MLflowAdapter) FinishTrial(result TrialResult) {
 		if env.HostArch != "" {
 			rootSpan.SetAttributes(attribute.String("hostArch", env.HostArch))
 		}
+		if len(env.AISettings) > 0 {
+			aiJSON, _ := json.Marshal(env.AISettings)
+			rootSpan.SetAttributes(attribute.String("aiSettings", string(aiJSON)))
+		}
 	}
 	for i, step := range steps {
 		a.emitStepSpan(rootCtx, tracer, i, step, result.ModelName)
@@ -209,12 +222,8 @@ func (a *MLflowAdapter) FinishTrial(result TrialResult) {
 
 
 func (a *MLflowAdapter) emitStepSpan(parentCtx context.Context, tracer trace.Tracer, idx int, step adapter.StepDetail, defaultModel string) {
-	stepStart := time.UnixMilli(step.StartMs)
-	if step.StartMs <= 0 {
-		stepStart = time.Now()
-	}
-	stepEnd := time.UnixMilli(step.EndMs)
-	if step.EndMs <= 0 {
+	stepStart, stepEnd, hasEnd := stepTimeRange(step.StartMs, step.EndMs)
+	if !hasEnd {
 		stepEnd = stepStart
 	}
 
@@ -247,6 +256,9 @@ func (a *MLflowAdapter) emitStepSpan(parentCtx context.Context, tracer trace.Tra
 			attrs = append(attrs, attribute.String("model", model))
 		}
 		attrs = append(attrs, attribute.Int64("llmInferenceMs", step.LLMInferenceMs))
+		if step.ToolTimeMs > 0 {
+			attrs = append(attrs, attribute.Int64("toolTimeMs", step.ToolTimeMs))
+		}
 		if step.Reason != "" {
 			attrs = append(attrs, attribute.String("finishReason", step.Reason))
 		}
@@ -294,6 +306,10 @@ func (a *MLflowAdapter) emitStepSpan(parentCtx context.Context, tracer trace.Tra
 		}
 		if step.Title != "" {
 			attrs = append(attrs, attribute.String("title", step.Title))
+		}
+		if step.Display != nil {
+			displayJSON, _ := json.Marshal(step.Display)
+			attrs = append(attrs, attribute.String("display", string(displayJSON)))
 		}
 	}
 
