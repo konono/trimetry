@@ -1,0 +1,10 @@
+profiles:
+  bench:
+    dockerfile: docker/Dockerfile
+    launch: shell
+    gh_token: true
+    skip_mise_install: true
+    env:
+      LANGFUSE_BASEURL: "https://your-langfuse-instance.example.com"
+      LANGFUSE_PUBLIC_KEY: "pk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      LANGFUSE_SECRET_KEY: "sk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"

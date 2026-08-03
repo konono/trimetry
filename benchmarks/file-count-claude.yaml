@@ -33,7 +33,7 @@ adapter:
   type: claude
   options:
     command: claude
-    working_directory: "/Users/kono/gitrepo/tel_rhoai/rhoai_manifest/rhoai-3.4_ocp-4.22"
+    working_directory: "."
 
 telemetry:
   enabled: true

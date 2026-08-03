@@ -12,5 +12,9 @@ benchmark-results/
 .env.*
 !.env.example
 
+# aw config (contains secrets)
+.aw.yml
+!.aw.yml.example
+
 # Go
 vendor/
