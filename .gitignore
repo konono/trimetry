@@ -18,3 +18,7 @@ benchmark-results/
 
 # Go
 vendor/
+.envrc
+.opencode/
+.tracecraft/
+
