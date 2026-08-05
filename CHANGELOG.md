@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0](https://github.com/konono/trimetry/compare/v0.3.0...v0.4.0) (2026-08-05)
+
+
+### Features
+
+* aw コンテナでのベンチマーク実行をサポート ([8fb5380](https://github.com/konono/trimetry/commit/8fb5380863a1b72949e6a1d69e64e71728746850))
+* aw コンテナでのベンチマーク実行をサポート ([68f2260](https://github.com/konono/trimetry/commit/68f2260f75b1dbeb810129a746b836889c7cad4b))
+* リッチな実行時表示と summary.md レポート改善 ([4ebcb35](https://github.com/konono/trimetry/commit/4ebcb3522ce4b618926b945af1dbe38ba358c34e))
+* リッチな実行時表示と summary.md レポート改善 ([577e73c](https://github.com/konono/trimetry/commit/577e73c776135a0cec0c5af396a0198e93e943ec))
+
 ## [0.3.0](https://github.com/konono/trimetry/compare/v0.2.0...v0.3.0) (2026-08-03)
 
 
