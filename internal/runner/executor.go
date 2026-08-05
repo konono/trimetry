@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -21,13 +20,15 @@ type TrialSpec struct {
 }
 
 type Executor struct {
-	Adapter         adapter.ApplicationAdapter
-	Telemetry       telemetry.Adapter
-	Concurrency     int
-	Retries         int
-	FlushOnTrialEnd bool
-	EnrichmentDir   string
-	BenchmarkName   string
+	Adapter          adapter.ApplicationAdapter
+	Telemetry        telemetry.Adapter
+	Concurrency      int
+	Retries          int
+	FlushOnTrialEnd  bool
+	EnrichmentDir    string
+	BenchmarkName    string
+	OnTrialComplete  func(model.Trial)
+	OnRetry          func(trialID string, attempt, maxRetries int)
 }
 
 func (e *Executor) RunTrials(ctx context.Context, specs []TrialSpec) []model.Trial {
@@ -47,6 +48,9 @@ func (e *Executor) RunTrials(ctx context.Context, specs []TrialSpec) []model.Tri
 				t.ErrorType = model.ErrCancelled
 				t.ErrorMessage = "context cancelled"
 				results[idx] = t
+				if e.OnTrialComplete != nil {
+					e.OnTrialComplete(t)
+				}
 				return
 			}
 			defer func() { <-sem }()
@@ -74,7 +78,9 @@ func (e *Executor) runTrial(ctx context.Context, spec TrialSpec) model.Trial {
 	for attempt := 0; attempt <= e.Retries; attempt++ {
 		if attempt > 0 {
 			retryCount++
-			log.Printf("  Retry %d/%d for trial %s", attempt, e.Retries, trial.TrialID)
+			if e.OnRetry != nil {
+				e.OnRetry(trial.TrialID, attempt, e.Retries)
+			}
 		}
 
 		result, execErr = e.Adapter.Execute(ctx, spec.Input, ec)
@@ -129,6 +135,10 @@ func (e *Executor) runTrial(ctx context.Context, spec TrialSpec) model.Trial {
 
 	if e.FlushOnTrialEnd {
 		e.Telemetry.Flush()
+	}
+
+	if e.OnTrialComplete != nil {
+		e.OnTrialComplete(trial)
 	}
 
 	return trial

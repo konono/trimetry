@@ -8,7 +8,6 @@ import (
 	"github.com/konono/trimetry/internal/model"
 )
 
-const maxOutputSamples = 3
 const maxOutputLen = 500
 
 func Summarize(trials []model.Trial) model.ScenarioSummary {
@@ -63,9 +62,6 @@ func Summarize(trials []model.Trial) model.ScenarioSummary {
 func collectOutputSamples(trials []model.Trial) []model.OutputSample {
 	var samples []model.OutputSample
 	for _, t := range trials {
-		if len(samples) >= maxOutputSamples {
-			break
-		}
 		if t.Output == "" {
 			continue
 		}
@@ -151,15 +147,30 @@ func computeStats(values []float64) model.StatsSummary {
 	}
 
 	return model.StatsSummary{
-		Mean:   math.Round(mean*100) / 100,
+		Mean:   roundSig(mean),
 		Median: percentile(sorted, 50),
-		StdDev: math.Round(math.Sqrt(variance)*100) / 100,
+		StdDev: roundSig(math.Sqrt(variance)),
 		Min:    sorted[0],
 		Max:    sorted[n-1],
 		P90:    percentile(sorted, 90),
 		P95:    percentile(sorted, 95),
 		Count:  n,
 	}
+}
+
+func roundSig(v float64) float64 {
+	if v == 0 {
+		return 0
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	digits := 2 - int(math.Floor(math.Log10(math.Abs(v))))
+	if digits < 2 {
+		digits = 2
+	}
+	shift := math.Pow(10, float64(digits))
+	return math.Round(v*shift) / shift
 }
 
 func percentile(sorted []float64, p float64) float64 {

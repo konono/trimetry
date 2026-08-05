@@ -9,6 +9,7 @@ LLM エージェント（opencode, Claude Code, Codex, Cursor）のベンチマ�
 ```bash
 trimetry run --config <path>              # ベンチマーク実行
 trimetry run --config <path> --dry-run    # ドライラン（fake adapter、テレメトリ無効）
+trimetry run --config <path> --verbose    # TTY で trial ごとの詳細行を表示
 trimetry validate --config <path>         # 設定ファイルのバリデーションのみ
 trimetry compare --baseline <path> --candidate <path>  # 2 つの実行結果を比較
 trimetry diagnostics --config <path>      # テレメトリ接続の診断
@@ -215,6 +216,7 @@ trimetry compare \
 | `internal/comparator/` | baseline vs candidate 比較 |
 | `internal/report/` | JSON + Markdown レポート出力 |
 | `internal/telemetry/` | Langfuse / MLflow テレメトリ |
+| `internal/ui/` | TTY / 非 TTY の実行時表示 |
 | `internal/version/` | バージョン情報（リリース時に自動更新） |
 | `benchmarks/` | ベンチマーク設定ファイル |
 | `examples/` | 外部ツール用サンプル設定 |

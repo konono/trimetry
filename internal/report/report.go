@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/konono/trimetry/internal/aggregator"
 	"github.com/konono/trimetry/internal/fileutil"
@@ -22,22 +24,22 @@ type Generator struct {
 	Scenarios  []model.Scenario
 }
 
-func (g *Generator) Write(run *model.BenchmarkRun, manifest model.RunManifest) error {
+func (g *Generator) Write(run *model.BenchmarkRun, manifest model.RunManifest) ([]model.ScenarioSummary, error) {
 	dir := filepath.Join(g.OutputDir, run.BenchmarkRunID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
+		return nil, fmt.Errorf("create output dir: %w", err)
 	}
 
 	if err := fileutil.WriteJSON(filepath.Join(dir, "run-manifest.json"), manifest); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := g.writeTrials(filepath.Join(dir, "trials.jsonl"), run.Trials); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := g.writeErrors(filepath.Join(dir, "errors.jsonl"), run.Trials); err != nil {
-		return err
+		return nil, err
 	}
 
 	summaries := g.buildSummaries(run.Trials, g.Scenarios)
@@ -54,16 +56,16 @@ func (g *Generator) Write(run *model.BenchmarkRun, manifest model.RunManifest) e
 		switch format {
 		case "json":
 			if err := fileutil.WriteJSON(filepath.Join(dir, "summary.json"), summaryData); err != nil {
-				return err
+				return nil, err
 			}
 		case "markdown":
 			if err := g.writeMarkdownSummary(filepath.Join(dir, "summary.md"), run, summaries); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 
-	return nil
+	return summaries, nil
 }
 
 func (g *Generator) writeTrials(path string, trials []model.Trial) error {
@@ -160,7 +162,7 @@ func (g *Generator) writeMarkdownSummary(path string, run *model.BenchmarkRun, s
 	fmt.Fprintf(w, "- **Started**: %s\n", run.StartedAt.Format("2006-01-02 15:04:05"))
 	if run.FinishedAt != nil {
 		fmt.Fprintf(w, "- **Finished**: %s\n", run.FinishedAt.Format("2006-01-02 15:04:05"))
-		fmt.Fprintf(w, "- **Duration**: %v\n", run.FinishedAt.Sub(run.StartedAt))
+		fmt.Fprintf(w, "- **Duration**: %s\n", formatDuration(run.FinishedAt.Sub(run.StartedAt)))
 	}
 	fmt.Fprintf(w, "- **Environment**: %s\n", run.Environment)
 	fmt.Fprintf(w, "- **Git Commit**: %s\n", run.GitCommit)
@@ -174,7 +176,7 @@ func (g *Generator) writeMarkdownSummary(path string, run *model.BenchmarkRun, s
 		}
 		fmt.Fprintf(w, "## %s (model: %s)\n\n", name, s.ModelName)
 		if s.Input != "" {
-			fmt.Fprintf(w, "<details>\n<summary>Prompt</summary>\n\n```\n%s```\n\n</details>\n\n", s.Input)
+			fmt.Fprintf(w, "> **Prompt**: `%s`\n\n", s.Input)
 		}
 		fmt.Fprintf(w, "| Metric | Value |\n")
 		fmt.Fprintf(w, "|--------|-------|\n")
@@ -243,8 +245,9 @@ func writeMetricTable(w *bufio.Writer, m *model.MetricsSummary) {
 		if s == nil {
 			return
 		}
-		fmt.Fprintf(w, "| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %d |\n",
-			name, s.Mean, s.Median, s.StdDev, s.Min, s.Max, s.P90, s.P95, s.Count)
+		f := formatMetricValue
+		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s | %d |\n",
+			name, f(s.Mean), f(s.Median), f(s.StdDev), f(s.Min), f(s.Max), f(s.P90), f(s.P95), s.Count)
 	}
 
 	for _, f := range metrics.Fields {
@@ -252,18 +255,27 @@ func writeMetricTable(w *bufio.Writer, m *model.MetricsSummary) {
 	}
 }
 
-func PrintRunSummary(run *model.BenchmarkRun) {
-	completed, failed, timeout, cancelled := model.CountTrialStatuses(run.Trials)
-
-	fmt.Printf("\n=== Run Summary ===\n")
-	fmt.Printf("  Total Trials: %d\n", len(run.Trials))
-	fmt.Printf("  Completed:    %d\n", completed)
-	fmt.Printf("  Failed:       %d\n", failed)
-	fmt.Printf("  Timeout:      %d\n", timeout)
-	if cancelled > 0 {
-		fmt.Printf("  Cancelled:    %d\n", cancelled)
+func formatMetricValue(v float64) string {
+	if v == 0 {
+		return "0.00"
 	}
-	if run.FinishedAt != nil {
-		fmt.Printf("  Duration:     %v\n", run.FinishedAt.Sub(run.StartedAt))
+	abs := math.Abs(v)
+	if abs >= 1 {
+		return fmt.Sprintf("%.2f", v)
 	}
+	digits := int(math.Ceil(-math.Log10(abs))) + 2
+	return fmt.Sprintf("%.*f", digits, v)
 }
+
+func formatDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm%02ds", m, s)
+}
+

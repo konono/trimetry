@@ -2,23 +2,28 @@ package runner
 
 import (
 	"context"
-	"log"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/konono/trimetry/internal/adapter"
 	"github.com/konono/trimetry/internal/config"
-	"github.com/konono/trimetry/internal/version"
 	"github.com/konono/trimetry/internal/id"
 	"github.com/konono/trimetry/internal/model"
 	"github.com/konono/trimetry/internal/telemetry"
+	"github.com/konono/trimetry/internal/ui"
+	"github.com/konono/trimetry/internal/version"
 )
 
 type Runner struct {
 	Config    *config.Config
 	Adapter   adapter.ApplicationAdapter
 	Telemetry telemetry.Adapter
+	Output    io.Writer
+	Verbose   bool
+	display   *ui.Display
 }
 
 func New(cfg *config.Config, app adapter.ApplicationAdapter, tel telemetry.Adapter) *Runner {
@@ -41,25 +46,25 @@ func (r *Runner) Run(ctx context.Context) (*model.BenchmarkRun, error) {
 		Status:         model.RunStatusRunning,
 	}
 
-	log.Printf("Benchmark Run: %s (%s)", run.Name, run.BenchmarkRunID)
-	log.Printf("  Environment: %s", run.Environment)
-	log.Printf("  Git Commit:  %s", run.GitCommit)
-
 	specs := r.expandTrials(run.BenchmarkRunID)
-	log.Printf("  Scenarios:   %d", len(r.Config.Scenarios))
-	log.Printf("  Models:      %d", len(r.Config.Models))
-	log.Printf("  Trials/Combo: %d", r.Config.Benchmark.Trials)
-	log.Printf("  Total Trials: %d", len(specs))
-	log.Printf("  Concurrency: %d", r.Config.Benchmark.Concurrency)
+
+	w := r.Output
+	if w == nil {
+		w = os.Stdout
+	}
+	display := ui.NewDisplay(run, r.Config.Scenarios, r.Config.Models, r.Config.Benchmark.Trials, r.Config.Benchmark.Concurrency, w, r.Verbose)
+	r.display = display
 
 	executor := &Executor{
-		Adapter:         r.Adapter,
-		Telemetry:       r.Telemetry,
-		Concurrency:     r.Config.Benchmark.Concurrency,
-		Retries:         r.Config.Benchmark.Retries,
-		FlushOnTrialEnd: r.Config.Telemetry.FlushOnTrialEnd,
-		EnrichmentDir:   r.Config.Telemetry.EnrichmentDir,
-		BenchmarkName:   r.Config.Benchmark.Name,
+		Adapter:          r.Adapter,
+		Telemetry:        r.Telemetry,
+		Concurrency:      r.Config.Benchmark.Concurrency,
+		Retries:          r.Config.Benchmark.Retries,
+		FlushOnTrialEnd:  r.Config.Telemetry.FlushOnTrialEnd,
+		EnrichmentDir:    r.Config.Telemetry.EnrichmentDir,
+		BenchmarkName:    r.Config.Benchmark.Name,
+		OnTrialComplete:  display.OnTrialComplete,
+		OnRetry:          display.OnRetry,
 	}
 
 	trials := executor.RunTrials(ctx, specs)
@@ -75,10 +80,11 @@ func (r *Runner) Run(ctx context.Context) (*model.BenchmarkRun, error) {
 
 	r.Telemetry.Flush()
 
-	log.Printf("Benchmark Run finished: %s (status=%s, duration=%v)",
-		run.BenchmarkRunID, run.Status, run.FinishedAt.Sub(run.StartedAt))
-
 	return run, nil
+}
+
+func (r *Runner) Display() *ui.Display {
+	return r.display
 }
 
 func (r *Runner) expandTrials(benchmarkRunID string) []TrialSpec {
