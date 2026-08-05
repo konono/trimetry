@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/konono/trimetry/compare/v0.4.0...v0.4.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* Dockerfile の GOBIN PATH 追加と version.go の release-please 対応 ([5d16b2d](https://github.com/konono/trimetry/commit/5d16b2d272c68796b180a6ec3516408905a22b91))
+* Dockerfile の GOBIN PATH 追加と version.go の release-please 対応 ([7caedfa](https://github.com/konono/trimetry/commit/7caedfab34ac241efc92c95afdecc764fb7c3d57))
+
 ## [0.4.0](https://github.com/konono/trimetry/compare/v0.3.0...v0.4.0) (2026-08-05)
 
 
