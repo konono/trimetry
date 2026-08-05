@@ -58,6 +58,7 @@ Commands:
 Run Options:
   --config <path>   Config file path (required)
   --dry-run         Run in dry-run mode
+  --verbose         Show per-trial detail lines in TTY mode
 
 Validate Options:
   --config <path>   Config file path (required)
@@ -124,6 +125,7 @@ func runBenchmark(args []string) int {
 	tel := telemetry.NewFromConfig(cfg)
 
 	r := runner.New(cfg, app, tel)
+	r.Verbose = hasFlag(args, "--verbose")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -137,17 +139,18 @@ func runBenchmark(args []string) int {
 	manifest := r.BuildManifest(run, dryRun)
 
 	gen := &report.Generator{
-		OutputDir: cfg.Report.OutputDirectory,
-		Formats:   cfg.Report.Formats,
+		OutputDir:  cfg.Report.OutputDirectory,
+		Formats:    cfg.Report.Formats,
 		MaskOutput: cfg.Report.MaskOutput,
-		Scenarios: cfg.Scenarios,
+		Scenarios:  cfg.Scenarios,
 	}
-	if err := gen.Write(run, manifest); err != nil {
+	summaries, err := gen.Write(run, manifest)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error writing report: %v\n", err)
 		return 1
 	}
 
-	report.PrintRunSummary(run)
+	r.Display().Finalize(run, summaries, cfg.Report.OutputDirectory)
 	return 0
 }
 

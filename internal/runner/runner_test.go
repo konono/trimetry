@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,6 +53,7 @@ func TestE2EFakeRun(t *testing.T) {
 	tel := &telemetry.NoopAdapter{}
 
 	r := New(cfg, app, tel)
+	r.Output = io.Discard
 	run, err := r.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -88,7 +90,7 @@ func TestE2EFakeRun(t *testing.T) {
 		Formats:   cfg.Report.Formats,
 	}
 	manifest := r.BuildManifest(run, false)
-	if err := gen.Write(run, manifest); err != nil {
+	if _, err := gen.Write(run, manifest); err != nil {
 		t.Fatalf("Report write failed: %v", err)
 	}
 
@@ -131,6 +133,7 @@ func TestE2ETrialIsolation(t *testing.T) {
 	}
 
 	r := New(cfg, fa, &telemetry.NoopAdapter{})
+	r.Output = io.Discard
 	run, err := r.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)

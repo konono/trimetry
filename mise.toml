@@ -2,7 +2,7 @@
 go = "latest"
 jq = "latest"
 node = "lts"
-opencode = "latest"
+opencode = "1.18.12"
 
 [env]
 # Langfuse / MLflow の認証情報は .env に記載してください

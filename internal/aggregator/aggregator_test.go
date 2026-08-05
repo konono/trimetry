@@ -130,6 +130,35 @@ func TestSummarizeCancelled(t *testing.T) {
 	}
 }
 
+func TestRoundSig(t *testing.T) {
+	tests := []struct {
+		input float64
+		want  float64
+	}{
+		{0, 0},
+		{123.456, 123.46},
+		{1.234, 1.23},
+		{0.00456, 0.00456},
+		{-5.678, -5.68},
+	}
+	for _, tt := range tests {
+		got := roundSig(tt.input)
+		if math.Abs(got-tt.want) > 1e-10 {
+			t.Errorf("roundSig(%v) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+
+	if !math.IsNaN(roundSig(math.NaN())) {
+		t.Error("roundSig(NaN) should return NaN")
+	}
+	if !math.IsInf(roundSig(math.Inf(1)), 1) {
+		t.Error("roundSig(+Inf) should return +Inf")
+	}
+	if !math.IsInf(roundSig(math.Inf(-1)), -1) {
+		t.Error("roundSig(-Inf) should return -Inf")
+	}
+}
+
 func makeTrial(status model.ExecutionStatus, wallMs int64, inTok, outTok, totalTok int64) model.Trial {
 	var inP, outP, totalP *int64
 	if inTok > 0 {
