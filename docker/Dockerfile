@@ -6,8 +6,8 @@ USER agent
 RUN mise use -g go@1.25 && mise reshim
 
 # mise shims を PATH に追加（Docker build 時は BASH_ENV が効かないため明示）
-ENV PATH="/home/agent/.local/share/mise/shims:${PATH}"
 ENV GOBIN="/home/agent/.local/bin"
+ENV PATH="/home/agent/.local/share/mise/shims:${GOBIN}:${PATH}"
 
 # trimetry インストール
 RUN go install github.com/konono/trimetry/cmd/trimetry@latest
