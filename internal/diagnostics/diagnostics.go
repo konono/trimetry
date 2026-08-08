@@ -95,12 +95,15 @@ func diagnoseLangfuse(cfg *config.Config) {
 	fmt.Printf("Secret Key:         %s...\n", safePrefix(cfg.Telemetry.SecretKey, 8))
 
 	fmt.Println("\n--- Testing Langfuse connectivity ---")
-	la := telemetry.NewLangfuseAdapter(
-		cfg.Telemetry.BaseURL,
-		cfg.Telemetry.PublicKey,
-		cfg.Telemetry.SecretKey,
-		cfg.Telemetry.TLSSkipVerify,
-	)
+	la := telemetry.NewLangfuseAdapter(telemetry.LangfuseOptions{
+		BaseURL:        cfg.Telemetry.BaseURL,
+		PublicKey:      cfg.Telemetry.PublicKey,
+		SecretKey:      cfg.Telemetry.SecretKey,
+		TLSSkipVerify:  cfg.Telemetry.TLSSkipVerify,
+		BatchChunkSize: cfg.Telemetry.BatchChunkSize,
+		MaxRetries:     cfg.Telemetry.MaxRetries,
+		MaxBatchQueue:  cfg.Telemetry.MaxBatchQueue,
+	})
 
 	testTrialID, trialCtx, trialResult := newDiagnosticTrial()
 	la.StartTrial(trialCtx)

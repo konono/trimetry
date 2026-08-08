@@ -168,6 +168,9 @@ report:
 | `flush_on_trial_end` | bool | false | trial ごとにフラッシュ |
 | `enrichment_dir` | string | `/tmp/trimetry-enrichment` | enrichment ファイルディレクトリ |
 | `tls_skip_verify` | bool | false | TLS 検証スキップ（self-signed cert 用） |
+| `batch_chunk_size` | int | 50 | Langfuse: 1 バッチあたりの最大イベント数 |
+| `max_retries` | int | 3 | Langfuse: 送信失敗時のリトライ回数（指数バックオフ、0 でリトライ無効） |
+| `max_batch_queue` | int | 10000 | Langfuse: メモリ内最大保持イベント数（安全弁） |
 
 Langfuse 使用時は環境変数 `LANGFUSE_BASEURL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` を設定。
 MLflow 使用時は `MLFLOW_TRACKING_URI`（必須）、`MLFLOW_TRACKING_TOKEN`（任意）を設定。

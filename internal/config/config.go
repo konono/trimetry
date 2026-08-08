@@ -37,9 +37,12 @@ type TelemetryConfig struct {
 	FlushOnTrialEnd bool `yaml:"flush_on_trial_end"`
 	EnrichmentDir string `yaml:"enrichment_dir"`
 	// Langfuse
-	BaseURL       string `yaml:"base_url"`
-	PublicKey     string `yaml:"public_key"`
-	SecretKey     string `yaml:"secret_key"`
+	BaseURL        string `yaml:"base_url"`
+	PublicKey      string `yaml:"public_key"`
+	SecretKey      string `yaml:"secret_key"`
+	BatchChunkSize int    `yaml:"batch_chunk_size"`
+	MaxRetries     int    `yaml:"max_retries"`
+	MaxBatchQueue  int    `yaml:"max_batch_queue"`
 	// MLflow
 	TrackingURI   string `yaml:"tracking_uri"`
 	Token         string `yaml:"token"`
@@ -140,6 +143,15 @@ func (c *Config) applyDefaults() {
 		c.Telemetry.resolveMLflowEnv()
 	default:
 		c.Telemetry.resolveLangfuseEnv()
+		if c.Telemetry.BatchChunkSize <= 0 {
+			c.Telemetry.BatchChunkSize = 50
+		}
+		if c.Telemetry.MaxRetries < 0 {
+			c.Telemetry.MaxRetries = 3
+		}
+		if c.Telemetry.MaxBatchQueue <= 0 {
+			c.Telemetry.MaxBatchQueue = 10000
+		}
 	}
 }
 
