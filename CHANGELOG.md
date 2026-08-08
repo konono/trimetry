@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/konono/trimetry/compare/v0.4.1...v0.5.0) (2026-08-08)
+
+
+### Features
+
+* Langfuse Flush の耐障害性改善 ([fb7188d](https://github.com/konono/trimetry/commit/fb7188d86fa594fc1bca1b20ac84d94b5ceaf0a2))
+* Langfuse Flush の耐障害性改善（リトライ・バッチ分割・再キュー） ([59f9fe9](https://github.com/konono/trimetry/commit/59f9fe9166c15f2f4b5d50f15886325fed536797))
+
 ## [0.4.1](https://github.com/konono/trimetry/compare/v0.4.0...v0.4.1) (2026-08-05)
 
 
