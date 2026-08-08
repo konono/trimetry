@@ -15,11 +15,14 @@ func NewFromConfig(cfg *config.Config) Adapter {
 			cfg.Telemetry.TLSSkipVerify,
 		)
 	default:
-		return NewLangfuseAdapter(
-			cfg.Telemetry.BaseURL,
-			cfg.Telemetry.PublicKey,
-			cfg.Telemetry.SecretKey,
-			cfg.Telemetry.TLSSkipVerify,
-		)
+		return NewLangfuseAdapter(LangfuseOptions{
+			BaseURL:        cfg.Telemetry.BaseURL,
+			PublicKey:      cfg.Telemetry.PublicKey,
+			SecretKey:      cfg.Telemetry.SecretKey,
+			TLSSkipVerify:  cfg.Telemetry.TLSSkipVerify,
+			BatchChunkSize: cfg.Telemetry.BatchChunkSize,
+			MaxRetries:     cfg.Telemetry.MaxRetries,
+			MaxBatchQueue:  cfg.Telemetry.MaxBatchQueue,
+		})
 	}
 }

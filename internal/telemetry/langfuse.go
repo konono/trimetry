@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,24 +30,53 @@ type LangfuseAdapter struct {
 	mu           sync.Mutex
 	batch        []ingestionEvent
 	scoreConfigs map[string]string // name -> configId
+
+	batchChunkSize int
+	maxRetries     int
+	maxBatchQueue  int
 }
 
-func NewLangfuseAdapter(baseURL, publicKey, secretKey string, tlsSkipVerify bool) *LangfuseAdapter {
-	baseURL = strings.TrimRight(baseURL, "/")
+type LangfuseOptions struct {
+	BaseURL        string
+	PublicKey      string
+	SecretKey      string
+	TLSSkipVerify  bool
+	BatchChunkSize int
+	MaxRetries     int
+	MaxBatchQueue  int
+}
+
+func NewLangfuseAdapter(opts LangfuseOptions) *LangfuseAdapter {
+	baseURL := strings.TrimRight(opts.BaseURL, "/")
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
-	if tlsSkipVerify {
+	if opts.TLSSkipVerify {
 		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 	}
+	batchChunkSize := opts.BatchChunkSize
+	if batchChunkSize <= 0 {
+		batchChunkSize = 50
+	}
+	maxRetries := opts.MaxRetries
+	if maxRetries < 0 {
+		maxRetries = 3
+	}
+	maxBatchQueue := opts.MaxBatchQueue
+	if maxBatchQueue <= 0 {
+		maxBatchQueue = 10000
+	}
 	a := &LangfuseAdapter{
-		baseURL:      baseURL,
-		publicKey:    publicKey,
-		secretKey:    secretKey,
-		scoreConfigs: make(map[string]string),
-		client:       client,
+		baseURL:        baseURL,
+		publicKey:      opts.PublicKey,
+		secretKey:      opts.SecretKey,
+		scoreConfigs:   make(map[string]string),
+		client:         client,
+		batchChunkSize: batchChunkSize,
+		maxRetries:     maxRetries,
+		maxBatchQueue:  maxBatchQueue,
 	}
 	a.loadScoreConfigs()
 	return a
@@ -460,41 +492,213 @@ func (a *LangfuseAdapter) Flush() {
 		return
 	}
 
-	if err := a.sendBatch(events); err != nil {
-		log.Printf("WARNING: Langfuse flush failed: %v", err)
+	failedEvents := a.sendWithRetry(events)
+
+	if len(failedEvents) > 0 {
+		a.mu.Lock()
+		capacity := a.maxBatchQueue - len(a.batch)
+		if capacity < 0 {
+			capacity = 0
+		}
+		if len(failedEvents) > capacity {
+			log.Printf("WARNING: Langfuse dropping %d events to prevent unbounded queue growth (max %d)",
+				len(failedEvents)-capacity, a.maxBatchQueue)
+			failedEvents = failedEvents[:capacity]
+		}
+		if len(failedEvents) > 0 {
+			a.batch = append(failedEvents, a.batch...)
+			log.Printf("WARNING: Langfuse re-queued %d failed events for next flush", len(failedEvents))
+		}
+		a.mu.Unlock()
 	}
 }
 
-func (a *LangfuseAdapter) sendBatch(events []ingestionEvent) error {
+type ingestionResponse struct {
+	Successes []ingestionResultItem `json:"successes"`
+	Errors    []ingestionErrorItem  `json:"errors"`
+}
+
+type ingestionResultItem struct {
+	ID     string `json:"id"`
+	Status int    `json:"status"`
+}
+
+type ingestionErrorItem struct {
+	ID      string `json:"id"`
+	Status  int    `json:"status"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type sendError struct {
+	statusCode int
+	message    string
+}
+
+func (e *sendError) Error() string {
+	return fmt.Sprintf("langfuse returned %d: %s", e.statusCode, e.message)
+}
+
+func isRetryableStatus(statusCode int) bool {
+	return statusCode >= 500 || statusCode == 429
+}
+
+func isRetryable(err error) bool {
+	var se *sendError
+	if errors.As(err, &se) {
+		return isRetryableStatus(se.statusCode)
+	}
+	return true
+}
+
+func splitBatch(events []ingestionEvent, chunkSize int) [][]ingestionEvent {
+	if chunkSize <= 0 {
+		chunkSize = 50
+	}
+	var chunks [][]ingestionEvent
+	for i := 0; i < len(events); i += chunkSize {
+		end := i + chunkSize
+		if end > len(events) {
+			end = len(events)
+		}
+		chunks = append(chunks, events[i:end])
+	}
+	return chunks
+}
+
+func backoffDelay(attempt int) time.Duration {
+	if attempt <= 0 {
+		return time.Second
+	}
+	base := time.Second
+	shift := uint(attempt - 1)
+	if shift > 4 {
+		shift = 4
+	}
+	delay := base * time.Duration(1<<shift)
+	if delay > 30*time.Second {
+		delay = 30 * time.Second
+	}
+	jitter := time.Duration(rand.Int64N(int64(delay) / 5))
+	return delay + jitter
+}
+
+func (a *LangfuseAdapter) sendWithRetry(events []ingestionEvent) []ingestionEvent {
+	chunks := splitBatch(events, a.batchChunkSize)
+	var allFailed []ingestionEvent
+
+	for _, chunk := range chunks {
+		failed := a.sendChunkWithRetry(chunk)
+		allFailed = append(allFailed, failed...)
+	}
+	return allFailed
+}
+
+func (a *LangfuseAdapter) sendChunkWithRetry(events []ingestionEvent) []ingestionEvent {
+	remaining := events
+	for attempt := 0; attempt <= a.maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(backoffDelay(attempt))
+		}
+		result, err := a.sendBatchParsed(remaining)
+		if err != nil {
+			if !isRetryable(err) {
+				log.Printf("WARNING: Langfuse non-retryable error, dropping %d events: %v", len(remaining), err)
+				return nil
+			}
+			log.Printf("WARNING: Langfuse send attempt %d/%d failed: %v", attempt+1, a.maxRetries+1, err)
+			continue
+		}
+		remaining = extractRetryableFailures(remaining, result)
+		if len(remaining) == 0 {
+			return nil
+		}
+		log.Printf("WARNING: Langfuse %d/%d events failed (attempt %d/%d)",
+			len(remaining), len(events), attempt+1, a.maxRetries+1)
+	}
+	return remaining
+}
+
+func extractRetryableFailures(sent []ingestionEvent, result *ingestionResponse) []ingestionEvent {
+	if result == nil || len(result.Errors) == 0 {
+		return nil
+	}
+
+	failedIDs := make(map[string]bool)
+	for _, e := range result.Errors {
+		if isRetryableStatus(e.Status) {
+			failedIDs[e.ID] = true
+		} else {
+			msg := e.Message
+			if msg == "" {
+				msg = e.Error
+			}
+			log.Printf("WARNING: Langfuse event %s permanently failed (status %d): %s", e.ID, e.Status, msg)
+		}
+	}
+
+	if len(failedIDs) == 0 {
+		return nil
+	}
+
+	var retryable []ingestionEvent
+	for _, ev := range sent {
+		if failedIDs[ev.ID] {
+			retryable = append(retryable, ev)
+		}
+	}
+	return retryable
+}
+
+func (a *LangfuseAdapter) sendBatchParsed(events []ingestionEvent) (*ingestionResponse, error) {
 	payload := map[string]any{
 		"batch": events,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal batch: %w", err)
+		return nil, fmt.Errorf("marshal batch: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", a.baseURL+"/api/public/ingestion", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(a.publicKey, a.secretKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var respBody bytes.Buffer
-		respBody.ReadFrom(resp.Body)
-		return fmt.Errorf("langfuse returned %d: %s", resp.StatusCode, respBody.String())
+	respBody, readErr := io.ReadAll(resp.Body)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if readErr != nil {
+			log.Printf("WARNING: Langfuse response body read failed (status %d): %v", resp.StatusCode, readErr)
+			return &ingestionResponse{}, nil
+		}
+		var result ingestionResponse
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			log.Printf("WARNING: Langfuse response parse failed (status %d), assuming success for %d events: %v",
+				resp.StatusCode, len(events), err)
+			return &ingestionResponse{}, nil
+		}
+		succeeded := len(result.Successes)
+		failed := len(result.Errors)
+		if failed > 0 {
+			log.Printf("  Langfuse: sent %d events (%d succeeded, %d failed)", len(events), succeeded, failed)
+		} else {
+			log.Printf("  Langfuse: sent %d events", len(events))
+		}
+		return &result, nil
 	}
 
-	log.Printf("  Langfuse: sent %d events", len(events))
-	return nil
+	return nil, &sendError{
+		statusCode: resp.StatusCode,
+		message:    string(respBody),
+	}
 }
 
 func (a *LangfuseAdapter) FetchTracesBySession(sessionID string) ([]LangfuseTrace, error) {
