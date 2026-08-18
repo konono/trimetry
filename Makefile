@@ -1,4 +1,4 @@
-.PHONY: build test clean validate run dry-run compare docker-build aw-build aw-save
+.PHONY: build test clean validate run dry-run compare docker-build aw-build aw-save langfuse-up langfuse-down langfuse-smoke
 
 BINARY := trimetry
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -28,13 +28,38 @@ compare:
 	./$(BINARY) compare --baseline $(BASELINE) --candidate $(CANDIDATE)
 
 CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || echo docker)
+COMPOSE := $(CONTAINER_RUNTIME) compose -f docker-compose.langfuse.yml
 DOCKER_IMAGE := trimetry-bench:latest
 
 docker-build:
-	$(CONTAINER_RUNTIME) build --build-arg GITHUB_TOKEN=$$(gh auth token) -t $(DOCKER_IMAGE) docker/
+	$(CONTAINER_RUNTIME) build -t $(DOCKER_IMAGE) docker/
 
 aw-build:
-	aw build bench --build-arg GITHUB_TOKEN=$$(gh auth token)
+	aw build bench
 
 aw-save:
-	aw build bench --build-arg GITHUB_TOKEN=$$(gh auth token) --save trimetry-bench.tar
+	aw build bench --save trimetry-bench.tar
+
+# --- Langfuse local ---
+langfuse-up:
+	$(COMPOSE) up -d
+	@echo "Waiting for Langfuse to become healthy..."
+	@timeout=120; while [ $$timeout -gt 0 ]; do \
+		if $(COMPOSE) ps langfuse-web --format json 2>/dev/null | grep -q '"healthy"'; then \
+			echo "Langfuse is ready at http://localhost:3000"; \
+			break; \
+		fi; \
+		sleep 3; \
+		timeout=$$((timeout - 3)); \
+	done; \
+	if [ $$timeout -le 0 ]; then echo "Timeout waiting for Langfuse"; exit 1; fi
+
+langfuse-down:
+	$(COMPOSE) down -v
+
+langfuse-smoke: build langfuse-up
+	LANGFUSE_BASEURL=http://localhost:3000 \
+	LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local \
+	LANGFUSE_SECRET_KEY=sk-lf-trimetry-local \
+	./$(BINARY) run --config benchmarks/langfuse-smoke.yaml
+	@echo "Langfuse smoke test passed. Traces visible at http://localhost:3000"

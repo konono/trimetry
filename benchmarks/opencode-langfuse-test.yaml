@@ -1,0 +1,32 @@
+benchmark:
+  name: opencode-langfuse-test
+  trials: 1
+  concurrency: 1
+  timeout_seconds: 120
+
+scenarios:
+  - id: simple-math
+    version: "1"
+    name: Simple Math
+    input: "What is 12 * 13? Answer with just the number."
+    expected_output: "156"
+
+models:
+  - name: qwen36-35b-a3b
+    provider: litellm
+
+adapter:
+  type: opencode
+  options:
+    working_directory: "."
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

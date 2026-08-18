@@ -28,6 +28,7 @@ type ExecutionResult struct {
 	Steps           []StepDetail
 	TTFTMs          *int64   // Time To First Token (ms from step_start to first text)
 	CostUSD         *float64 // actual cost reported by provider (e.g. Claude)
+	SessionID       string   // agent session ID (e.g. opencode sessionID)
 }
 
 type TokenInfo struct {

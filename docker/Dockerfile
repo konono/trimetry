@@ -13,15 +13,11 @@ ENV PATH="/home/agent/.local/share/mise/shims:${GOBIN}:${PATH}"
 RUN go install github.com/konono/trimetry/cmd/trimetry@latest
 
 # opencode langfuse プラグインをイメージにベイク
-# @konono スコープは GitHub Packages にあるため npmrc 設定が必要
-ARG GITHUB_TOKEN=""
-RUN echo "@konono:registry=https://npm.pkg.github.com/" >> ~/.npmrc && \
-    echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc && \
-    mkdir -p /tmp/plugin-setup/.opencode && \
+RUN mkdir -p /tmp/plugin-setup/.opencode && \
     echo '{}' > /tmp/plugin-setup/.opencode/opencode.json && \
     cd /tmp/plugin-setup && \
-    opencode plugin @konono/opencode-plugin-langfuse -f && \
-    rm -rf /tmp/plugin-setup ~/.npmrc
+    opencode plugin @langfuse/opencode-observability-plugin -f && \
+    rm -rf /tmp/plugin-setup
 
 # グローバル opencode 設定（どのディレクトリでもプラグイン + OTEL 有効）
 COPY --chmod=0644 opencode.jsonc /home/agent/.config/opencode/opencode.jsonc

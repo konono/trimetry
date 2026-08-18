@@ -9,11 +9,12 @@ import (
 )
 
 type parsedOutput struct {
-	Text   string
-	Tokens *TokenInfo
-	CostUSD *float64
-	Steps  []StepDetail
-	TTFTMs *int64
+	Text      string
+	Tokens    *TokenInfo
+	CostUSD   *float64
+	Steps     []StepDetail
+	TTFTMs    *int64
+	SessionID string
 }
 
 type rawExecResult struct {
@@ -93,6 +94,7 @@ func toExecutionResult(raw *rawExecResult, parsed parsedOutput) (*ExecutionResul
 		CostUSD:    parsed.CostUSD,
 		Steps:      parsed.Steps,
 		TTFTMs:     parsed.TTFTMs,
+		SessionID:  parsed.SessionID,
 	}
 
 	if raw.Err != nil {

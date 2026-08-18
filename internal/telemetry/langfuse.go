@@ -15,10 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/konono/trimetry/internal/adapter"
 	"github.com/konono/trimetry/internal/id"
 	mdl "github.com/konono/trimetry/internal/model"
-	"github.com/konono/trimetry/internal/version"
 )
 
 type LangfuseAdapter struct {
@@ -34,6 +32,11 @@ type LangfuseAdapter struct {
 	batchChunkSize int
 	maxRetries     int
 	maxBatchQueue  int
+
+	// traceID cache: sessionID -> resolved trace info (from plugin's OTLP trace)
+	traceCache map[string]resolvedTrace
+	// trial context cache: trialID -> TrialContext (stored in StartTrial, used in FinishTrial)
+	trialContexts map[string]TrialContext
 }
 
 type LangfuseOptions struct {
@@ -73,6 +76,8 @@ func NewLangfuseAdapter(opts LangfuseOptions) *LangfuseAdapter {
 		publicKey:      opts.PublicKey,
 		secretKey:      opts.SecretKey,
 		scoreConfigs:   make(map[string]string),
+		traceCache:     make(map[string]resolvedTrace),
+		trialContexts:  make(map[string]TrialContext),
 		client:         client,
 		batchChunkSize: batchChunkSize,
 		maxRetries:     maxRetries,
@@ -89,54 +94,6 @@ type ingestionEvent struct {
 	Body      any       `json:"body"`
 }
 
-type traceCreateBody struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name,omitempty"`
-	SessionID string         `json:"sessionId,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	Tags      []string       `json:"tags,omitempty"`
-	Timestamp time.Time      `json:"timestamp,omitempty"`
-	Input     any            `json:"input,omitempty"`
-	Output    any            `json:"output,omitempty"`
-	Release   string         `json:"release,omitempty"`
-}
-
-type generationCreateBody struct {
-	ID              string         `json:"id"`
-	TraceID         string         `json:"traceId"`
-	Name            string         `json:"name"`
-	Model           string         `json:"model,omitempty"`
-	ModelParameters map[string]any `json:"modelParameters,omitempty"`
-	StartTime       time.Time      `json:"startTime"`
-	EndTime         *time.Time     `json:"endTime,omitempty"`
-	Input           any            `json:"input,omitempty"`
-	Output          any            `json:"output,omitempty"`
-	Usage           *usageBody     `json:"usage,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
-	Level           string         `json:"level,omitempty"`
-	StatusMessage   string         `json:"statusMessage,omitempty"`
-}
-
-type spanCreateBody struct {
-	ID            string         `json:"id"`
-	TraceID       string         `json:"traceId"`
-	Name          string         `json:"name"`
-	StartTime     time.Time      `json:"startTime"`
-	EndTime       *time.Time     `json:"endTime,omitempty"`
-	Input         any            `json:"input,omitempty"`
-	Output        any            `json:"output,omitempty"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-	Level         string         `json:"level,omitempty"`
-	StatusMessage string         `json:"statusMessage,omitempty"`
-}
-
-type usageBody struct {
-	Input  *int64 `json:"input,omitempty"`
-	Output *int64 `json:"output,omitempty"`
-	Total  *int64 `json:"total,omitempty"`
-	Unit   string `json:"unit,omitempty"`
-}
-
 type scoreCreateBody struct {
 	ID            string  `json:"id"`
 	TraceID       string  `json:"traceId"`
@@ -148,67 +105,157 @@ type scoreCreateBody struct {
 	ObservationID string  `json:"observationId,omitempty"`
 }
 
+// StartTrial stores the trial context for use in FinishTrial.
+// The opencode plugin creates the trace via OTLP; trimetry only annotates it.
 func (a *LangfuseAdapter) StartTrial(ctx TrialContext) {
-	metadata := map[string]any{
-		"benchmarkRunId":  ctx.BenchmarkRunID,
-		"scenarioId":      ctx.ScenarioID,
-		"scenarioVersion": ctx.ScenarioVersion,
-		"trialId":         ctx.TrialID,
-		"trialNumber":     ctx.TrialNumber,
-		"modelName":       ctx.ModelName,
-		"modelProvider":   ctx.ModelProvider,
-	}
-	if len(ctx.ModelParameters) > 0 {
-		metadata["modelParameters"] = ctx.ModelParameters
-	}
-	if ctx.BenchmarkName != "" {
-		metadata["benchmarkName"] = ctx.BenchmarkName
-	}
+	a.mu.Lock()
+	a.trialContexts[ctx.TrialID] = ctx
+	a.mu.Unlock()
+}
 
-	tags := []string{
-		"benchmark",
-		fmt.Sprintf("scenario:%s", ctx.ScenarioID),
-		fmt.Sprintf("model:%s", ctx.ModelName),
-	}
-	if ctx.BenchmarkName != "" {
-		tags = append(tags, fmt.Sprintf("benchmark:%s", ctx.BenchmarkName))
-	}
-
-	event := ingestionEvent{
-		ID:        id.NewEventID(),
-		Type:      "trace-create",
-		Timestamp: time.Now(),
-		Body: traceCreateBody{
-			ID:        ctx.TrialID,
-			Name:      fmt.Sprintf("%s_trial-%d", ctx.ScenarioID, ctx.TrialNumber),
-			SessionID: ctx.BenchmarkRunID,
-			Metadata:  metadata,
-			Tags:      tags,
-			Timestamp: time.Now(),
-			Input:     ctx.Input,
-			Release:   version.Version,
-		},
-	}
-
-	a.addEvent(event)
+type resolvedTrace struct {
+	TraceID      string
+	RootSpanID   string // OTLP spanId of the root AGENT observation
 }
 
 func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
-	output := buildTrialOutput(result)
+	resolved := a.resolveTrace(result)
+	if resolved.TraceID == "" {
+		log.Printf("WARNING: Langfuse: could not resolve traceId for trial %s (sessionID=%q), skipping score/metadata injection",
+			result.TrialID, result.SessionID)
+		return
+	}
+
+	a.mu.Lock()
+	tc := a.trialContexts[result.TrialID]
+	delete(a.trialContexts, result.TrialID)
+	a.mu.Unlock()
+
+	a.annotateTrace(resolved, tc, result)
+
+	for _, eval := range result.Evaluations {
+		if eval.Score != nil {
+			a.addScore(resolved.TraceID, eval)
+		}
+	}
+}
+
+// resolveTrace finds the Langfuse trace info for a trial.
+// For adapters with a session ID (opencode), it queries the Langfuse API.
+// For adapters without (fake, codex, etc.), it uses the trialID directly.
+func (a *LangfuseAdapter) resolveTrace(result TrialResult) resolvedTrace {
+	if result.SessionID == "" {
+		return resolvedTrace{TraceID: result.TrialID}
+	}
+
+	a.mu.Lock()
+	if cached, ok := a.traceCache[result.SessionID]; ok {
+		a.mu.Unlock()
+		return cached
+	}
+	a.mu.Unlock()
+
+	// Retry lookup: the plugin's OTLP flush may not have been ingested yet.
+	// Langfuse v4 writes to ClickHouse asynchronously, so it can take 10-30s.
+	var resolved resolvedTrace
+	for attempt := 0; attempt < 10; attempt++ {
+		if attempt > 0 {
+			time.Sleep(5 * time.Second)
+		}
+		resolved = a.lookupTraceBySession(result.SessionID)
+		if resolved.TraceID != "" {
+			break
+		}
+	}
+	if resolved.TraceID != "" {
+		a.mu.Lock()
+		a.traceCache[result.SessionID] = resolved
+		a.mu.Unlock()
+	}
+	return resolved
+}
+
+// lookupTraceBySession queries the Langfuse v2 observations API to find
+// the root AGENT observation for a given sessionId and extract its traceId
+// and spanId (observation id).
+func (a *LangfuseAdapter) lookupTraceBySession(sessionID string) resolvedTrace {
+	u := fmt.Sprintf("%s/api/public/v2/observations?sessionId=%s&type=AGENT&limit=1",
+		a.baseURL, url.QueryEscape(sessionID))
+
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		log.Printf("WARNING: Langfuse traceId lookup failed: %v", err)
+		return resolvedTrace{}
+	}
+	req.SetBasicAuth(a.publicKey, a.secretKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Langfuse traceId lookup failed: %v", err)
+		return resolvedTrace{}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("WARNING: Langfuse traceId lookup returned %d: %s", resp.StatusCode, string(body))
+		return resolvedTrace{}
+	}
+
+	var result struct {
+		Data []struct {
+			ID      string `json:"id"`
+			TraceID string `json:"traceId"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("WARNING: Langfuse traceId lookup parse failed: %v", err)
+		return resolvedTrace{}
+	}
+	if len(result.Data) == 0 {
+		log.Printf("WARNING: Langfuse: no AGENT observation found for sessionId=%s", sessionID)
+		return resolvedTrace{}
+	}
+	return resolvedTrace{
+		TraceID:    result.Data[0].TraceID,
+		RootSpanID: result.Data[0].ID,
+	}
+}
+
+// annotateTrace sends a minimal OTLP span with langfuse.trace.* attributes
+// to annotate the plugin's trace at the trace level (name, tags, metadata,
+// input, output). This avoids creating a visible sibling span.
+func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext, result TrialResult) {
+	traceName := fmt.Sprintf("%s_trial-%d", tc.ScenarioID, tc.TrialNumber)
+
+	tags := []string{
+		"benchmark",
+		fmt.Sprintf("scenario:%s", tc.ScenarioID),
+		fmt.Sprintf("model:%s", tc.ModelName),
+	}
+	if tc.BenchmarkName != "" {
+		tags = append(tags, fmt.Sprintf("benchmark:%s", tc.BenchmarkName))
+	}
 
 	metadata := map[string]any{
-		"executionStatus": result.ExecutionStatus,
+		"benchmarkRunId":  tc.BenchmarkRunID,
+		"scenarioId":      tc.ScenarioID,
+		"scenarioVersion": tc.ScenarioVersion,
+		"trialId":         result.TrialID,
+		"trialNumber":     tc.TrialNumber,
+		"modelName":       tc.ModelName,
+		"modelProvider":   tc.ModelProvider,
+		"adapterName":     result.AdapterName,
+		"executionStatus": string(result.ExecutionStatus),
+	}
+	if len(tc.ModelParameters) > 0 {
+		metadata["modelParameters"] = tc.ModelParameters
 	}
 	if result.Metrics != nil {
 		metadata["wallTimeMs"] = result.Metrics.WallTimeMs
 		metadata["retryCount"] = result.Metrics.RetryCount
-		metadata["tokenUsageSource"] = result.Metrics.TokenUsageSource
-		metadata["costSource"] = result.Metrics.CostSource
-		if result.Metrics.LLMLatencyMs != nil {
-			metadata["llmLatencyMs"] = *result.Metrics.LLMLatencyMs
-		}
-		if result.Metrics.IdleMs != nil {
-			metadata["idleMs"] = *result.Metrics.IdleMs
+		if result.Metrics.TotalTokens != nil {
+			metadata["totalTokens"] = *result.Metrics.TotalTokens
 		}
 		if result.Metrics.EstimatedCost != nil {
 			metadata["estimatedCost"] = *result.Metrics.EstimatedCost
@@ -216,162 +263,121 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 		if result.Metrics.AccuracyScore != nil {
 			metadata["accuracyScore"] = *result.Metrics.AccuracyScore
 		}
+		if result.Metrics.LLMLatencyMs != nil {
+			metadata["llmLatencyMs"] = *result.Metrics.LLMLatencyMs
+		}
+		if result.Metrics.TTFTMs != nil {
+			metadata["ttftMs"] = *result.Metrics.TTFTMs
+		}
 	}
 
-	steps, enrichment := prepareEnrichedSteps(result)
-
+	_, enrichment := prepareEnrichedSteps(result)
 	if enrichment.Environment != nil {
 		metadata["hostName"] = enrichment.Environment.HostName
 		metadata["hostArch"] = enrichment.Environment.HostArch
-		if len(enrichment.Environment.AISettings) > 0 {
-			metadata["aiSettings"] = enrichment.Environment.AISettings
-		}
 	}
 
-	a.addEvent(ingestionEvent{
-		ID:        id.NewEventID(),
-		Type:      "trace-create",
-		Timestamp: time.Now(),
-		Body: traceCreateBody{
-			ID:       result.TrialID,
-			Output:   output,
-			Metadata: metadata,
+	output := buildTrialOutput(result)
+
+	tagsJSON, _ := json.Marshal(tags)
+	metadataJSON, _ := json.Marshal(metadata)
+	inputJSON, _ := json.Marshal(tc.Input)
+	outputJSON, _ := json.Marshal(output)
+
+	otelAttrs := []map[string]any{
+		otelAttribute("langfuse.trace.name", traceName),
+		otelAttribute("langfuse.trace.tags", string(tagsJSON)),
+		otelAttribute("langfuse.trace.metadata", string(metadataJSON)),
+		otelAttribute("langfuse.trace.input", string(inputJSON)),
+		otelAttribute("langfuse.trace.output", string(outputJSON)),
+		otelAttribute("langfuse.internal.is_app_root", "false"),
+	}
+
+	now := time.Now()
+	// Use a zero-duration span so it doesn't appear as a visible bar in the timeline
+	nowNano := fmt.Sprintf("%d", now.UnixNano())
+
+	payload := map[string]any{
+		"resourceSpans": []map[string]any{
+			{
+				"resource": map[string]any{
+					"attributes": []map[string]any{
+						otelAttribute("service.name", "trimetry"),
+					},
+				},
+				"scopeSpans": []map[string]any{
+					{
+						"scope": map[string]any{"name": "trimetry"},
+						"spans": []map[string]any{
+							a.buildAnnotationSpan(resolved, nowNano, otelAttrs),
+						},
+					},
+				},
+			},
 		},
-	})
-	for i, step := range steps {
-		switch step.Type {
-		case adapter.StepTypeGeneration:
-			a.addGenerationObservation(result.TrialID, i, step)
-		case adapter.StepTypeTool:
-			a.addToolObservation(result.TrialID, i, step)
-		}
 	}
 
-	for _, eval := range result.Evaluations {
-		if eval.Score != nil {
-			a.addScore(result.TrialID, eval)
-		}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP marshal failed: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", a.baseURL+"/api/public/otel/v1/traces", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP request failed: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(a.publicKey, a.secretKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP send failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("WARNING: Langfuse OTLP returned %d: %s", resp.StatusCode, string(respBody))
+	} else {
+		log.Printf("  Langfuse: annotated trace %s for trial %s", resolved.TraceID, result.TrialID)
 	}
 }
 
-func (a *LangfuseAdapter) addGenerationObservation(traceID string, idx int, step adapter.StepDetail) {
-	startTime, endTime, hasEnd := stepTimeRange(step.StartMs, step.EndMs)
-	var endTimePtr *time.Time
-	if hasEnd {
-		endTimePtr = &endTime
+func (a *LangfuseAdapter) buildAnnotationSpan(resolved resolvedTrace, nowNano string, attrs []map[string]any) map[string]any {
+	span := map[string]any{
+		"traceId":           resolved.TraceID,
+		"spanId":            id.NewHexID(8),
+		"name":              "trimetry.annotate",
+		"kind":              1,
+		"startTimeUnixNano": nowNano,
+		"endTimeUnixNano":   nowNano,
+		"attributes":        attrs,
+		"status":            map[string]any{"code": 1},
 	}
-
-	meta := map[string]any{
-		"stepIndex":      idx,
-		"status":         step.Status,
-		"reason":         step.Reason,
-		"durationMs":     step.DurationMs,
-		"llmInferenceMs": step.LLMInferenceMs,
-		"toolTimeMs":     step.ToolTimeMs,
+	if resolved.RootSpanID != "" {
+		span["parentSpanId"] = resolved.RootSpanID
 	}
-	if len(step.ToolsCalled) > 0 {
-		meta["toolsCalled"] = step.ToolsCalled
-	}
-	if step.TTFTMs != nil {
-		meta["ttftMs"] = *step.TTFTMs
-	}
-	if step.Tokens != nil {
-		meta["reasoningTokens"] = step.Tokens.Reasoning
-		meta["cacheReadTokens"] = step.Tokens.CacheRead
-		meta["cacheWriteTokens"] = step.Tokens.CacheWrite
-	}
-	for k, v := range step.Metadata {
-		meta[k] = v
-	}
-
-	body := generationCreateBody{
-		ID:        id.NewEventID(),
-		TraceID:   traceID,
-		Name:      step.Name,
-		StartTime: startTime,
-		EndTime:   endTimePtr,
-		Input:     step.Input,
-		Output:    step.Output,
-		Metadata:  meta,
-	}
-
-	level, isError := langfuseLevel(step.Status)
-	body.Level = level
-	if isError && step.Reason != "" {
-		body.StatusMessage = step.Reason
-	}
-
-	if step.Model != "" {
-		body.Model = step.Model
-	}
-	if step.Tokens != nil {
-		body.Usage = &usageBody{
-			Input:  &step.Tokens.Input,
-			Output: &step.Tokens.Output,
-			Total:  &step.Tokens.Total,
-			Unit:   "TOKENS",
-		}
-	}
-
-	a.addEvent(ingestionEvent{
-		ID:        id.NewEventID(),
-		Type:      "generation-create",
-		Timestamp: time.Now(),
-		Body:      body,
-	})
+	return span
 }
 
-func (a *LangfuseAdapter) addToolObservation(traceID string, idx int, step adapter.StepDetail) {
-	startTime, endTime, hasEnd := stepTimeRange(step.StartMs, step.EndMs)
-	var endTimePtr *time.Time
-	if hasEnd {
-		endTimePtr = &endTime
+func otelAttribute(key string, value any) map[string]any {
+	attr := map[string]any{"key": key}
+	switch v := value.(type) {
+	case string:
+		attr["value"] = map[string]any{"stringValue": v}
+	case int:
+		attr["value"] = map[string]any{"intValue": fmt.Sprintf("%d", v)}
+	case int64:
+		attr["value"] = map[string]any{"intValue": fmt.Sprintf("%d", v)}
+	case float64:
+		attr["value"] = map[string]any{"doubleValue": v}
+	default:
+		attr["value"] = map[string]any{"stringValue": fmt.Sprintf("%v", v)}
 	}
-
-	meta := map[string]any{
-		"stepIndex":  idx,
-		"status":     step.Status,
-		"durationMs": step.DurationMs,
-	}
-	if step.CallID != "" {
-		meta["callID"] = step.CallID
-	}
-	if step.Title != "" {
-		meta["title"] = step.Title
-	}
-	if step.Display != nil {
-		meta["display"] = step.Display
-	}
-	for k, v := range step.Metadata {
-		if k == "display" {
-			continue
-		}
-		meta[k] = v
-	}
-
-	body := spanCreateBody{
-		ID:        id.NewEventID(),
-		TraceID:   traceID,
-		Name:      step.Name,
-		StartTime: startTime,
-		EndTime:   endTimePtr,
-		Input:     step.Input,
-		Output:    step.Output,
-		Metadata:  meta,
-	}
-
-	level, isError := langfuseLevel(step.Status)
-	body.Level = level
-	if isError {
-		body.StatusMessage = fmt.Sprintf("tool %s failed", step.Name)
-	}
-
-	a.addEvent(ingestionEvent{
-		ID:        id.NewEventID(),
-		Type:      "span-create",
-		Timestamp: time.Now(),
-		Body:      body,
-	})
+	return attr
 }
 
 func (a *LangfuseAdapter) addScore(traceID string, eval mdl.EvaluationResult) {
@@ -650,6 +656,44 @@ func extractRetryableFailures(sent []ingestionEvent, result *ingestionResponse) 
 	return retryable
 }
 
+// FetchTracesBySession queries traces by sessionId (used by diagnostics).
+// Note: This uses the v3 API which may not work in Langfuse v4 events_only mode.
+func (a *LangfuseAdapter) FetchTracesBySession(sessionID string) ([]LangfuseTrace, error) {
+	u := fmt.Sprintf("%s/api/public/traces?sessionId=%s", a.baseURL, url.QueryEscape(sessionID))
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(a.publicKey, a.secretKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("traces API returned %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Data []LangfuseTrace `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+type LangfuseTrace struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	SessionID string         `json:"sessionId"`
+	Metadata  map[string]any `json:"metadata"`
+	Tags      []string       `json:"tags"`
+	Timestamp string         `json:"timestamp"`
+}
+
 func (a *LangfuseAdapter) sendBatchParsed(events []ingestionEvent) (*ingestionResponse, error) {
 	payload := map[string]any{
 		"batch": events,
@@ -700,42 +744,3 @@ func (a *LangfuseAdapter) sendBatchParsed(events []ingestionEvent) (*ingestionRe
 		message:    string(respBody),
 	}
 }
-
-func (a *LangfuseAdapter) FetchTracesBySession(sessionID string) ([]LangfuseTrace, error) {
-	u := fmt.Sprintf("%s/api/public/traces?sessionId=%s", a.baseURL, url.QueryEscape(sessionID))
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(a.publicKey, a.secretKey)
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("traces API returned %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data []LangfuseTrace `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Data, nil
-}
-
-type LangfuseTrace struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	SessionID string         `json:"sessionId"`
-	Metadata  map[string]any `json:"metadata"`
-	Tags      []string       `json:"tags"`
-	Timestamp string         `json:"timestamp"`
-}
-
-
-
