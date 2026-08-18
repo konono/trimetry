@@ -185,7 +185,6 @@ telemetry:
 ./trimetry run                 --config benchmarks/dry-run.yaml  # fake adapter (フラグ不要)
 ./trimetry run --dry-run       --config examples/opencode-smoke.yaml  # fake adapter + telemetry 無効化
 ./trimetry compare             --baseline <path> --candidate <path>
-./trimetry diagnose-tracing    --config <path>
 ```
 
 > `--dry-run` は `validate` と `run` の両方で使えます。adapter を fake に差し替え、telemetry を無効化するため、Langfuse/MLflow の環境変数なしで実行できます。`benchmarks/dry-run.yaml` は YAML で同等の設定を定義した CI 用ファイルです。`examples/` の設定はプレースホルダー（`your-model` / `your-provider`）を含むため、実際のモデル名に書き換えて使用してください。
@@ -249,7 +248,6 @@ benchmark/
 │   ├── aggregator/        # 統計集計
 │   ├── comparator/        # Baseline vs Candidate 比較
 │   ├── config/            # YAML 設定読み込み・バリデーション
-│   ├── diagnostics/       # トレーシング診断
 │   ├── evaluator/         # 自動評価 (completion, accuracy)
 │   ├── id/                # ID 生成
 │   ├── metrics/           # TrialMetrics 構築・フィールド定義

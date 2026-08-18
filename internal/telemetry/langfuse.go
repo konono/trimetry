@@ -666,44 +666,6 @@ func extractRetryableFailures(sent []ingestionEvent, result *ingestionResponse) 
 	return retryable
 }
 
-// FetchTracesBySession queries traces by sessionId (used by diagnostics).
-// Note: This uses the v3 API which may not work in Langfuse v4 events_only mode.
-func (a *LangfuseAdapter) FetchTracesBySession(sessionID string) ([]LangfuseTrace, error) {
-	u := fmt.Sprintf("%s/api/public/traces?sessionId=%s", a.baseURL, url.QueryEscape(sessionID))
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(a.publicKey, a.secretKey)
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("traces API returned %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data []LangfuseTrace `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Data, nil
-}
-
-type LangfuseTrace struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	SessionID string         `json:"sessionId"`
-	Metadata  map[string]any `json:"metadata"`
-	Tags      []string       `json:"tags"`
-	Timestamp string         `json:"timestamp"`
-}
-
 func (a *LangfuseAdapter) sendBatchParsed(events []ingestionEvent) (*ingestionResponse, error) {
 	payload := map[string]any{
 		"batch": events,

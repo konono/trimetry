@@ -12,7 +12,6 @@ trimetry run --config <path> --dry-run    # ドライラン（fake adapter、テ
 trimetry run --config <path> --verbose    # TTY で trial ごとの詳細行を表示
 trimetry validate --config <path>         # 設定ファイルのバリデーションのみ
 trimetry compare --baseline <path> --candidate <path>  # 2 つの実行結果を比較
-trimetry diagnostics --config <path>      # テレメトリ接続の診断
 trimetry version                          # バージョン表示
 ```
 
