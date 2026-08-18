@@ -116,8 +116,10 @@ func (e *Executor) runTrial(ctx context.Context, spec TrialSpec) model.Trial {
 	trial.Evaluations = evaluator.RunEvaluations(trial, accuracy, reason)
 
 	var steps []adapter.StepDetail
+	var sessionID string
 	if result != nil {
 		steps = result.Steps
+		sessionID = result.SessionID
 	}
 
 	e.Telemetry.FinishTrial(telemetry.TrialResult{
@@ -130,6 +132,7 @@ func (e *Executor) runTrial(ctx context.Context, spec TrialSpec) model.Trial {
 		Metrics:          trial.Metrics,
 		Steps:            steps,
 		Evaluations:      trial.Evaluations,
+		SessionID:        sessionID,
 		EnrichmentDir:    e.EnrichmentDir,
 	})
 

@@ -77,21 +77,24 @@ func parseOpencodeJSON(raw string) parsedOutput {
 	var pendingTools []StepDetail
 	var stepStartMs int64
 	var stepTextParts []string
-	var firstTextMs int64 // for TTFT within step
+	var firstTextEventTs int64
 	var lastToolOutputs []map[string]any
 
 	scanJSONLines(raw, func(event opencodeEvent) {
+		if result.SessionID == "" && event.SessionID != "" {
+			result.SessionID = event.SessionID
+		}
 		switch event.Type {
 		case "step_start":
 			stepStartMs = event.Timestamp
 			stepTextParts = nil
-			firstTextMs = 0
+			firstTextEventTs = 0
 
 		case "text":
 			textParts = append(textParts, event.Part.Text)
 			stepTextParts = append(stepTextParts, event.Part.Text)
-			if firstTextMs == 0 && event.Part.Time != nil {
-				firstTextMs = event.Part.Time.Start
+			if firstTextEventTs == 0 {
+				firstTextEventTs = event.Timestamp
 			}
 
 		case "tool_use":
@@ -170,8 +173,8 @@ func parseOpencodeJSON(raw string) parsedOutput {
 			genStep.ToolTimeMs = toolTimeInStep
 			genStep.LLMInferenceMs = genStep.DurationMs - toolTimeInStep
 
-			if firstTextMs > 0 && stepStartMs > 0 {
-				ttft := firstTextMs - stepStartMs
+			if firstTextEventTs > 0 && stepStartMs > 0 {
+				ttft := firstTextEventTs - stepStartMs
 				genStep.TTFTMs = &ttft
 				if result.TTFTMs == nil {
 					result.TTFTMs = &ttft
@@ -204,7 +207,7 @@ func parseOpencodeJSON(raw string) parsedOutput {
 			result.Steps = append(result.Steps, pendingTools...)
 			pendingTools = nil
 			stepTextParts = nil
-			firstTextMs = 0
+			firstTextEventTs = 0
 		}
 	})
 

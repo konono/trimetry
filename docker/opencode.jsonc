@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@konono/opencode-plugin-langfuse"],
+  "plugin": ["@langfuse/opencode-observability-plugin"],
   "experimental": {
     "openTelemetry": true
   }

@@ -30,6 +30,7 @@ type TrialResult struct {
 	Metrics          *model.TrialMetrics
 	Steps            []adapter.StepDetail
 	Evaluations      []model.EvaluationResult
+	SessionID        string
 	EnrichmentDir    string
 }
 

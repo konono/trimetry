@@ -1,0 +1,29 @@
+benchmark:
+  name: langfuse-smoke
+  trials: 2
+  concurrency: 1
+  timeout_seconds: 60
+
+scenarios:
+  - id: telemetry-check
+    version: "1"
+    name: Telemetry Ingestion Check
+    input: "Hello, what model are you?"
+
+models:
+  - name: fake-model
+    provider: fake
+
+adapter:
+  type: fake
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats:
+    - json
+    - markdown

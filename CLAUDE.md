@@ -12,16 +12,18 @@ trimetry run --config <path> --dry-run    # ドライラン（fake adapter、テ
 trimetry run --config <path> --verbose    # TTY で trial ごとの詳細行を表示
 trimetry validate --config <path>         # 設定ファイルのバリデーションのみ
 trimetry compare --baseline <path> --candidate <path>  # 2 つの実行結果を比較
-trimetry diagnostics --config <path>      # テレメトリ接続の診断
 trimetry version                          # バージョン表示
 ```
 
 ## ビルドとテスト
 
 ```bash
-make build    # バイナリビルド（./trimetry が生成される）
-make test     # テスト実行
-make dry-run  # ドライラン（外部依存なし、CI でも使える）
+make build         # バイナリビルド（./trimetry が生成される）
+make test          # テスト実行
+make dry-run       # ドライラン（外部依存なし、CI でも使える）
+make langfuse-up   # Langfuse v4 をローカル起動（podman compose）
+make langfuse-down # Langfuse 停止 + ボリューム削除
+make langfuse-smoke # ビルド → Langfuse 起動 → fake adapter smoke テスト
 ```
 
 ## ベンチマーク設定ファイルの作り方
@@ -223,6 +225,8 @@ trimetry compare \
 | `internal/version/` | バージョン情報（リリース時に自動更新） |
 | `benchmarks/` | ベンチマーク設定ファイル |
 | `examples/` | 外部ツール用サンプル設定 |
+| `docker/` | コンテナイメージ（Dockerfile + opencode グローバル設定） |
+| `docker-compose.langfuse.yml` | ローカル Langfuse v4 環境 |
 
 ## コミットメッセージ
 

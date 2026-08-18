@@ -9,7 +9,6 @@ import (
 	"github.com/konono/trimetry/internal/adapter"
 	"github.com/konono/trimetry/internal/comparator"
 	"github.com/konono/trimetry/internal/config"
-	"github.com/konono/trimetry/internal/diagnostics"
 	"github.com/konono/trimetry/internal/report"
 	"github.com/konono/trimetry/internal/runner"
 	"github.com/konono/trimetry/internal/telemetry"
@@ -29,8 +28,6 @@ func main() {
 		os.Exit(runValidate(os.Args[2:]))
 	case "compare":
 		os.Exit(runCompare(os.Args[2:]))
-	case "diagnostics":
-		os.Exit(runDiagnostics(os.Args[2:]))
 	case "version":
 		fmt.Println("trimetry", version.Version)
 	case "help", "--help", "-h":
@@ -52,7 +49,6 @@ Commands:
   run           Run benchmarks
   validate      Validate a config file
   compare       Compare two benchmark runs
-  diagnostics   Run telemetry connectivity diagnostics
   version       Print version
 
 Run Options:
@@ -66,9 +62,6 @@ Validate Options:
 Compare Options:
   --baseline <path>     Baseline summary.json path (required)
   --candidate <path>    Candidate summary.json path (required)
-
-Diagnostics Options:
-  --config <path>   Config file path (required)
 `, version.Version)
 }
 
@@ -204,19 +197,3 @@ func runCompare(args []string) int {
 	return 0
 }
 
-func runDiagnostics(args []string) int {
-	configPath := parseFlag(args, "--config")
-	if configPath == "" {
-		fmt.Fprintln(os.Stderr, "error: --config is required")
-		return 1
-	}
-
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
-		return 1
-	}
-
-	diagnostics.Run(cfg)
-	return 0
-}
