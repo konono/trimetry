@@ -140,19 +140,37 @@ trimetry compare \
   --candidate benchmark-results/run-bbb/summary.json
 ```
 
-### 4. テレメトリを有効にする（Langfuse / MLflow）
+### 4. テレメトリを有効にする（Langfuse）
+
+#### ローカル Langfuse を使う場合
+
+```bash
+# Langfuse v4 をローカルで起動（podman compose）
+make langfuse-up
+
+# opencode に公式 Langfuse プラグインをインストール
+mise run setup-langfuse
+
+# .env を編集してローカル Langfuse を指す
+cp .env.langfuse.example .env.langfuse
+# LANGFUSE_BASEURL=http://localhost:3000
+# LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
+# LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+```
+
+#### 外部 Langfuse を使う場合
 
 ```bash
 cp .env.example .env
-# .env を編集: LANGFUSE_* または MLFLOW_* を設定
+# .env を編集: LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定
 ```
 
-設定ファイルの `telemetry` セクションを有効化:
+#### 設定ファイルでテレメトリを有効化
 
 ```yaml
 telemetry:
   enabled: true
-  provider: langfuse       # または mlflow
+  provider: langfuse
   flush_on_trial_end: true
 ```
 
@@ -181,12 +199,31 @@ telemetry:
 ```
 Benchmark Run
   └─ Scenario × Model × Trial
-      └─ Trace
-          ├─ LLM Generation span (tokens, latency, reasoning)
-          ├─ Tool Call span (input, output, duration)
-          ├─ LLM Generation span
-          └─ Evaluation (completion, non_empty, accuracy)
+      └─ Trace (Langfuse)
+          ├─ opencode.turn (AGENT)          ← 公式プラグインが作成
+          │   ├─ opencode.message.user      ← プラグイン
+          │   ├─ opencode.generation        ← プラグイン (tokens, model, cost)
+          │   │   └─ tool (TOOL)            ← プラグイン
+          │   └─ trimetry.annotate          ← trimetry (trace-level metadata)
+          ├─ Tags: [benchmark, scenario:X, model:Y]
+          ├─ Metadata: {scenarioId, trialNumber, wallTimeMs, accuracy, ...}
+          └─ Scores: accuracy, completion, non_empty
 ```
+
+### テレメトリの責務分離
+
+opencode adapter では、トレース構造の作成と trimetry のベンチマークメタデータ注入を分離している。
+
+| 責務 | 担当 | 方法 |
+|---|---|---|
+| トレース構造 (turn → generation → tool) | 公式プラグイン | OTLP span |
+| LLM メトリクス (tokens, model, cost, TTFT) | 公式プラグイン | OTLP span attributes |
+| input/output 記録 | 公式プラグイン | OTLP span attributes |
+| ベンチマーク Score (accuracy 等) | trimetry | REST `score-create` |
+| ベンチマーク metadata (scenarioId, trialNumber 等) | trimetry | OTLP `langfuse.trace.*` 属性 |
+| 集計・比較レポート | trimetry | ローカルファイル |
+
+trimetry は opencode の sessionId から Langfuse の traceId を検索し、`langfuse.trace.tags` / `langfuse.trace.metadata` / `langfuse.trace.input` / `langfuse.trace.output` を OTLP span 属性として送信する。これにより Langfuse UI の trace トップレベルにベンチマーク情報が表示される。
 
 ### コンポーネント
 
@@ -195,8 +232,7 @@ Benchmark Run
 | Config Loader | YAML 設定読み込み・バリデーション |
 | Application Adapter | CLI ツール (opencode, claude, codex, cursor) のサブプロセス実行と出力パース |
 | Trial Executor | Trial の並行実行、タイムアウト、リトライ制御 |
-| Telemetry Adapter | Langfuse REST API / MLflow OTLP でトレース・スパン作成 |
-| Enrichment | OpenTelemetry から reasoning/finishReason/aiSettings をファイル経由で取得（opencode adapter のみ） |
+| Telemetry Adapter | Langfuse: score-create (REST) + trace annotation (OTLP) / MLflow: OTLP |
 | Metrics Builder | adapter 出力から TrialMetrics を構築 |
 | Evaluator | completion / non_empty / accuracy の自動評価 |
 | Aggregator | 統計集計 (mean, median, stddev, p90, p95) |
@@ -246,29 +282,20 @@ Trial (logical ID: tr_xxx)
 
 | | Langfuse | MLflow |
 |---|---|---|
-| プロトコル | REST API (JSON batch) | OTLP (protobuf) |
+| プロトコル | OTLP (trace annotation) + REST (score-create) | OTLP (protobuf) |
 | 認証 | Basic Auth | Bearer Token / なし |
-| トレースモデル | Trace → Generation/Span/Score | Trace → Span (OTel 互換) |
-| enrichment | ファイルベース (共通) | ファイルベース (共通) |
+| トレース作成 | 公式プラグイン (OTLP) | trimetry (OTLP) |
+| trimetry の役割 | score + metadata 注入 | trace 全体を作成 |
 
-両方とも同じ enrichment ファイル (`<enrichment_dir>/<trialId>.jsonl`) を使用し、reasoning/finishReason/aiSettings を取得する。デフォルトの `enrichment_dir` は `/tmp/trimetry-enrichment`。`telemetry.enrichment_dir` 設定または `TRIMETRY_ENRICHMENT_DIR` 環境変数で変更可能。
+#### Langfuse v4 対応
 
-#### Enrichment の仕組み
+Langfuse v4 (`events_only` モード) では REST ingestion API が `score-create` のみ受け付ける。trace/generation/span の作成は OTLP 経由のみ。
 
-LLM の内部情報 (reasoning テキスト、finishReason、AI 設定) は opencode の JSON 出力には含まれない。OpenTelemetry の `ai.response.reasoning` 等の属性に含まれる。
+opencode adapter では公式プラグイン (`@langfuse/opencode-observability-plugin`) がトレース構造を OTLP で作成し、trimetry は以下を後付けする:
 
-opencode プラグイン (`@konono/opencode-plugin-langfuse` / `@konono/opencode-plugin-mlflow`) が OTel SpanProcessor としてこれらの属性をキャプチャし、ファイルに書き出す。ベンチマーク adapter がファイルから読み出してトレースに合成する。
-
-```
-opencode process
-  ├─ AI SDK → OTEL span (ai.response.reasoning, ai.response.finishReason)
-  ├─ Plugin SpanProcessor → <enrichment_dir>/<trialId>.jsonl
-  └─ stdout → benchmark adapter (text, steps, tokens)
-
-benchmark process
-  ├─ collectFileEnrichment(trialId) → reasoning, finishReason, aiSettings
-  └─ merge into telemetry trace spans
-```
+1. sessionId → traceId の検索（Langfuse observations API）
+2. `langfuse.trace.*` 属性による trace レベルのメタデータ注入（OTLP span）
+3. evaluation score の登録（REST `score-create`）
 
 #### 不明値の扱い
 
@@ -387,33 +414,34 @@ trial が 1 つでも失敗・タイムアウト・キャンセルした場合�
 ## セットアップ (mise)
 
 ```bash
-mise install                    # go, node, opencode をインストール
+mise install                    # go, node, opencode, podman, docker-compose をインストール
 mise run build                  # ビルド
-mise run setup-langfuse         # Langfuse プラグイン設定
+mise run setup-langfuse         # Langfuse 公式プラグイン設定
 mise run setup-mlflow           # MLflow プラグイン設定
 ```
 
-## opencode.json の設定
+## opencode プラグインの設定
 
-opencode adapter でテレメトリを使う場合、プラグインのインストールに加えて `opencode.json` でプラグインを有効化する必要がある。
+opencode adapter でテレメトリを使う場合、プラグインのインストールと `opencode.json` での有効化が必要。
 
-### Langfuse
+### Langfuse（公式プラグイン）
 
 ```bash
-mise run setup-langfuse   # プラグインをインストール
+mise run setup-langfuse   # 公式プラグインをインストール
 ```
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@konono/opencode-plugin-langfuse"]
+  "plugin": ["@langfuse/opencode-observability-plugin"],
+  "experimental": { "openTelemetry": true }
 }
 ```
 
 ### MLflow
 
 ```bash
-mise run setup-mlflow     # プラグインをインストール
+mise run setup-mlflow     # MLflow プラグインをインストール
 ```
 
 ```json
@@ -499,7 +527,7 @@ report:
 ### イメージのビルドと実行
 
 ```bash
-# 1. trimetry リポでイメージビルド
+# 1. trimetry リポでイメージビルド（GITHUB_TOKEN 不要）
 cd ~/gitrepo/trimetry
 make aw-build
 
@@ -517,8 +545,10 @@ aw bench -- trimetry run --config benchmarks/file-count.yaml
 | Go (mise 経由) | trimetry のビルド・実行 |
 | trimetry | ベンチマーク実行 |
 | opencode | LLM エージェント CLI |
-| opencode-plugin-langfuse | Langfuse への詳細トレース送信 |
+| @langfuse/opencode-observability-plugin | Langfuse 公式プラグイン（トレース構造作成） |
 | グローバル opencode 設定 | どのディレクトリでもプラグイン + OTEL が有効 |
+
+> **Note:** 公式プラグインは npm public registry にあるため、ビルド時に `GITHUB_TOKEN` は不要。
 
 ### 別環境への持ち出し
 
