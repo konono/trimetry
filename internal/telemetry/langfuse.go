@@ -17,6 +17,7 @@ import (
 
 	"github.com/konono/trimetry/internal/id"
 	mdl "github.com/konono/trimetry/internal/model"
+	"github.com/konono/trimetry/internal/version"
 )
 
 type LangfuseAdapter struct {
@@ -120,32 +121,32 @@ type resolvedTrace struct {
 
 func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 	resolved := a.resolveTrace(result)
-	if resolved.TraceID == "" {
-		log.Printf("WARNING: Langfuse: could not resolve traceId for trial %s (sessionID=%q), skipping score/metadata injection",
-			result.TrialID, result.SessionID)
-		return
-	}
 
 	a.mu.Lock()
 	tc := a.trialContexts[result.TrialID]
 	delete(a.trialContexts, result.TrialID)
 	a.mu.Unlock()
 
-	a.annotateTrace(resolved, tc, result)
-
-	for _, eval := range result.Evaluations {
-		if eval.Score != nil {
-			a.addScore(resolved.TraceID, eval)
+	if resolved.TraceID == "" {
+		log.Printf("WARNING: Langfuse: could not resolve traceId for trial %s (sessionID=%q), skipping trace annotation",
+			result.TrialID, result.SessionID)
+	} else {
+		a.annotateTrace(resolved, tc, result)
+		for _, eval := range result.Evaluations {
+			if eval.Score != nil {
+				a.addScore(resolved.TraceID, eval)
+			}
 		}
 	}
 }
 
 // resolveTrace finds the Langfuse trace info for a trial.
 // For adapters with a session ID (opencode), it queries the Langfuse API.
-// For adapters without (fake, codex, etc.), it uses the trialID directly.
+// For adapters without (fake, codex, etc.), there is no plugin trace to
+// annotate, so it returns empty (scores/annotation are skipped).
 func (a *LangfuseAdapter) resolveTrace(result TrialResult) resolvedTrace {
 	if result.SessionID == "" {
-		return resolvedTrace{TraceID: result.TrialID}
+		return resolvedTrace{}
 	}
 
 	a.mu.Lock()
@@ -179,8 +180,11 @@ func (a *LangfuseAdapter) resolveTrace(result TrialResult) resolvedTrace {
 // the root AGENT observation for a given sessionId and extract its traceId
 // and spanId (observation id).
 func (a *LangfuseAdapter) lookupTraceBySession(sessionID string) resolvedTrace {
-	u := fmt.Sprintf("%s/api/public/v2/observations?sessionId=%s&type=AGENT&limit=1",
-		a.baseURL, url.QueryEscape(sessionID))
+	// Use filter parameter to work around langfuse#15636 where sessionId
+	// query parameter may be ignored in some versions.
+	filter := fmt.Sprintf(`[{"type":"string","column":"sessionId","operator":"=","value":"%s"}]`, sessionID)
+	u := fmt.Sprintf("%s/api/public/v2/observations?type=AGENT&limit=1&filter=%s",
+		a.baseURL, url.QueryEscape(filter))
 
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
@@ -204,8 +208,9 @@ func (a *LangfuseAdapter) lookupTraceBySession(sessionID string) resolvedTrace {
 
 	var result struct {
 		Data []struct {
-			ID      string `json:"id"`
-			TraceID string `json:"traceId"`
+			ID        string `json:"id"`
+			TraceID   string `json:"traceId"`
+			SessionID string `json:"sessionId"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -213,12 +218,16 @@ func (a *LangfuseAdapter) lookupTraceBySession(sessionID string) resolvedTrace {
 		return resolvedTrace{}
 	}
 	if len(result.Data) == 0 {
-		log.Printf("WARNING: Langfuse: no AGENT observation found for sessionId=%s", sessionID)
+		return resolvedTrace{}
+	}
+	obs := result.Data[0]
+	if obs.SessionID != sessionID {
+		log.Printf("WARNING: Langfuse: sessionId mismatch (want %s, got %s), skipping", sessionID, obs.SessionID)
 		return resolvedTrace{}
 	}
 	return resolvedTrace{
-		TraceID:    result.Data[0].TraceID,
-		RootSpanID: result.Data[0].ID,
+		TraceID:    obs.TraceID,
+		RootSpanID: obs.ID,
 	}
 }
 
@@ -247,6 +256,7 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 		"modelProvider":   tc.ModelProvider,
 		"adapterName":     result.AdapterName,
 		"executionStatus": string(result.ExecutionStatus),
+		"trimetryVersion": version.Version,
 	}
 	if len(tc.ModelParameters) > 0 {
 		metadata["modelParameters"] = tc.ModelParameters
