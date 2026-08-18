@@ -44,7 +44,7 @@ aw-save:
 langfuse-up:
 	$(COMPOSE) up -d
 	@echo "Waiting for Langfuse to become healthy..."
-	@timeout=120; while [ $$timeout -gt 0 ]; do \
+	@timeout=300; while [ $$timeout -gt 0 ]; do \
 		if $(COMPOSE) ps langfuse-web --format json 2>/dev/null | grep -q '"healthy"'; then \
 			echo "Langfuse is ready at http://localhost:3000"; \
 			break; \
