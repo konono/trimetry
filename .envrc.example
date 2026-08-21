@@ -16,6 +16,17 @@ export LANGFUSE_SECRET_KEY=sk-lf-...
 # export LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
 # export LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
 
+# --- ローカル Langfuse 初期化のカスタマイズ (docker-compose.langfuse.yml のデフォルト値を上書き) ---
+# export LANGFUSE_INIT_ORG_ID=trimetry-org
+# export LANGFUSE_INIT_PROJECT_ID=trimetry-project
+# export LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-trimetry-local
+# export LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-trimetry-local
+# export LANGFUSE_INIT_USER_EMAIL=admin@trimetry.local
+# export LANGFUSE_INIT_USER_PASSWORD=adminadmin
+# export NEXTAUTH_SECRET=trimetry-local-secret
+# export SALT=trimetry-local-salt
+# export ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+
 # === MLflow (provider: mlflow) ===
 # export MLFLOW_TRACKING_URI=http://localhost:5000
 # export MLFLOW_TRACKING_TOKEN=          # 認証トークン (任意)

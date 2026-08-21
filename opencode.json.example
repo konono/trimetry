@@ -6,7 +6,7 @@
       "name": "Your Provider",
       "options": {
         "baseURL": "https://your-api-endpoint/v1",
-        "apiKey": "{file:.your-token}"
+        "apiKey": "{file:.vllm-token}"
       },
       "models": {
         "your-model": {

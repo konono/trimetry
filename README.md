@@ -153,8 +153,8 @@ make langfuse-up
 mise run setup-langfuse
 
 # .envrc をローカル Langfuse 向けに設定
-# .envrc.example の cloud 向け export をコメントアウトし、
-# ローカル Langfuse 向けコメント（14-17 行目）のコメントを外す
+# cloud 向けの LANGFUSE_* export をコメントアウトし、
+# 「ローカル Langfuse」セクションのコメントを外す
 cp .envrc.example .envrc
 vi .envrc   # export LANGFUSE_BASEURL=http://localhost:3000 等を有効化
 direnv allow
@@ -415,12 +415,13 @@ trial が 1 つでも失敗・タイムアウト・キャンセルした場合�
 ## セットアップ (mise)
 
 ```bash
-mise install                    # go, node, opencode, podman, docker-compose をインストール
-cp .envrc.example .envrc        # 環境変数テンプレートをコピーして編集
-direnv allow                    # 環境変数を有効化
-mise run build                  # ビルド
-mise run setup-langfuse         # Langfuse 公式プラグイン設定
-mise run setup-mlflow           # MLflow プラグイン設定
+mise install                           # go, node, opencode, podman, docker-compose をインストール
+cp .envrc.example .envrc               # 環境変数テンプレートをコピーして編集
+cp opencode.json.example opencode.json # opencode プロバイダー設定をコピーして編集
+direnv allow                           # 環境変数を有効化
+mise run build                         # ビルド
+mise run setup-langfuse                # Langfuse 公式プラグイン設定
+mise run setup-mlflow                  # MLflow プラグイン設定
 ```
 
 ## opencode プラグインの設定

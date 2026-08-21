@@ -1,4 +1,5 @@
 [tools]
+direnv = "latest"
 docker-compose = "latest"
 go = "latest"
 jq = "latest"
