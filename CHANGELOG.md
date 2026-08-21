@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/konono/trimetry/compare/v0.5.0...v0.5.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* Langfuse healthcheck の IPv6 問題を修正し langfuse-down のデータ保持をデフォルトに ([4338950](https://github.com/konono/trimetry/commit/4338950dbdf5698024e27f3dbcb51373a2fbb51d))
+* Langfuse healthcheck の IPv6 問題を修正し langfuse-down のデータ保持をデフォルトに ([8734666](https://github.com/konono/trimetry/commit/87346660a6239332345c204460b406a6e9f7129c))
+
 ## [0.5.0](https://github.com/konono/trimetry/compare/v0.4.1...v0.5.0) (2026-08-21)
 
 
