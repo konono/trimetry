@@ -50,6 +50,7 @@ services:
       - "3000:3000"
     environment:
       <<: *langfuse-worker-env
+      HOSTNAME: "0.0.0.0"
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-trimetry-local-secret}
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
       LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-trimetry-org}
@@ -62,7 +63,7 @@ services:
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-adminadmin}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/public/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/public/health"]
       interval: 5s
       timeout: 5s
       retries: 30

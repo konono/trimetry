@@ -1,4 +1,4 @@
-.PHONY: build test clean validate run dry-run compare docker-build aw-build aw-save langfuse-up langfuse-down langfuse-smoke
+.PHONY: build test clean validate run dry-run compare docker-build aw-build aw-save langfuse-up langfuse-down langfuse-reset langfuse-smoke
 
 BINARY := trimetry
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -55,6 +55,9 @@ langfuse-up:
 	if [ $$timeout -le 0 ]; then echo "Timeout waiting for Langfuse"; exit 1; fi
 
 langfuse-down:
+	$(COMPOSE) down
+
+langfuse-reset:
 	$(COMPOSE) down -v
 
 langfuse-smoke: build langfuse-up

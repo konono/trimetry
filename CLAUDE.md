@@ -22,7 +22,8 @@ make build         # バイナリビルド（./trimetry が生成される）
 make test          # テスト実行
 make dry-run       # ドライラン（外部依存なし、CI でも使える）
 make langfuse-up   # Langfuse v4 をローカル起動（podman compose）
-make langfuse-down # Langfuse 停止 + ボリューム削除
+make langfuse-down # Langfuse 停止（データは保持）
+make langfuse-reset # Langfuse 停止 + ボリューム削除（完全リセット）
 make langfuse-smoke # ビルド → Langfuse 起動 → fake adapter smoke テスト
 ```
 
