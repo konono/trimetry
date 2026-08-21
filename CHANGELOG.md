@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.0](https://github.com/konono/trimetry/compare/v0.4.1...v0.5.0) (2026-08-21)
+
+
+### Features
+
+* Langfuse Flush の耐障害性改善 ([fb7188d](https://github.com/konono/trimetry/commit/fb7188d86fa594fc1bca1b20ac84d94b5ceaf0a2))
+* Langfuse Flush の耐障害性改善（リトライ・バッチ分割・再キュー） ([59f9fe9](https://github.com/konono/trimetry/commit/59f9fe9166c15f2f4b5d50f15886325fed536797))
+* Langfuse v4 対応 + 公式プラグインへの移行 ([c322d28](https://github.com/konono/trimetry/commit/c322d2899c7a9694c37105b0b237f406e9f27334))
+* Langfuse v4 対応 + 公式プラグインへの移行 + ローカル Langfuse 環境 ([14bb787](https://github.com/konono/trimetry/commit/14bb78737a24f17e4a238c08afde140e0ddb7561))
+
+
+### Bug Fixes
+
+* langfuse-up の healthcheck タイムアウトを 300 秒に延長 ([cbbf690](https://github.com/konono/trimetry/commit/cbbf690c26b2233b4b1e6eacd4c7b203a12b266c))
+* PR レビュー指摘への対応 ([f7e446c](https://github.com/konono/trimetry/commit/f7e446cd52d87b0803be7b724bba40bf8ae6ff04))
+* PR レビュー指摘への対応 ([fd53660](https://github.com/konono/trimetry/commit/fd53660163743d8897992470d577de809f37a725))
+* レビュー指摘への対応（opencode.json.example / ドキュメント整合性） ([a02da10](https://github.com/konono/trimetry/commit/a02da1074a3c103d507929acaecd0470ec6672ca))
+* 環境変数を .envrc に一本化し .env ファイルを廃止 ([fa2402f](https://github.com/konono/trimetry/commit/fa2402f61bf126706a6e71cca1a9b997313da132))
+* 環境変数を .envrc に一本化し .env ファイルを廃止 ([ed3953d](https://github.com/konono/trimetry/commit/ed3953d9c962ddf01545991a067aa0af65c0b5ab))
+
 ## [0.4.1](https://github.com/konono/trimetry/compare/v0.4.0...v0.4.1) (2026-08-05)
 
 
