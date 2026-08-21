@@ -15,7 +15,10 @@ benchmark-results/
 
 # Secrets
 .vllm-token
+
+# opencode local config (contains provider/API key references)
 opencode.json
+!opencode.json.example
 
 # aw config (contains secrets)
 .aw.yml
