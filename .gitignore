@@ -8,10 +8,8 @@ benchmark-results/
 .DS_Store
 
 # Environment
-.env
-.env.*
-!.env.example
-!.env.langfuse.example
+.envrc
+!.envrc.example
 
 # aw config (contains secrets)
 .aw.yml
@@ -19,7 +17,6 @@ benchmark-results/
 
 # Go
 vendor/
-.envrc
 .opencode/
 .tracecraft/
 
