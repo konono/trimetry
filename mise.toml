@@ -7,8 +7,8 @@ opencode = "1.18.12"
 podman = { version = "latest", rename_exe = "podman-remote" }
 
 [env]
-# Langfuse / MLflow の認証情報は .env に記載してください
-_.file = ".env"
+# 環境変数は .envrc (direnv) で管理: cp .envrc.example .envrc && direnv allow
+# .env は使用しないこと（opencode 内蔵の Bun が自動読み込みし環境変数を上書きするため）
 
 [tasks.build]
 description = "Go バイナリをビルド"
@@ -43,7 +43,7 @@ opencode plugin @langfuse/opencode-observability-plugin -f
 
 echo ""
 echo "==> Setup complete!"
-echo "    .env に LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定してください"
+echo "    .envrc に LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定してください"
 """
 
 [tasks.setup-mlflow]
@@ -59,5 +59,5 @@ opencode plugin @konono/opencode-plugin-mlflow -f
 
 echo ""
 echo "==> Setup complete!"
-echo "    .env に MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_ID を設定してください"
+echo "    .envrc に MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_ID を設定してください"
 """

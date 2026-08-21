@@ -8,8 +8,13 @@ benchmark-results/
 .DS_Store
 
 # Environment
+.env
+.env.*
 .envrc
 !.envrc.example
+
+# Secrets
+.vllm-token
 
 # aw config (contains secrets)
 .aw.yml

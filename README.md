@@ -151,18 +151,20 @@ make langfuse-up
 # opencode に公式 Langfuse プラグインをインストール
 mise run setup-langfuse
 
-# .env を編集してローカル Langfuse を指す
-cp .env.langfuse.example .env.langfuse
+# .envrc を編集してローカル Langfuse を指す
+cp .envrc.example .envrc
 # LANGFUSE_BASEURL=http://localhost:3000
 # LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
 # LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+direnv allow
 ```
 
 #### 外部 Langfuse を使う場合
 
 ```bash
-cp .env.example .env
-# .env を編集: LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定
+cp .envrc.example .envrc
+# .envrc を編集: LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定
+direnv allow
 ```
 
 #### 設定ファイルでテレメトリを有効化

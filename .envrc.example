@@ -11,6 +11,11 @@ export LANGFUSE_BASEURL=https://cloud.langfuse.com
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
 
+# --- ローカル Langfuse (make langfuse-up) を使う場合は以下に切り替え ---
+# export LANGFUSE_BASEURL=http://localhost:3000
+# export LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
+# export LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+
 # === MLflow (provider: mlflow) ===
 # export MLFLOW_TRACKING_URI=http://localhost:5000
 # export MLFLOW_TRACKING_TOKEN=          # 認証トークン (任意)
