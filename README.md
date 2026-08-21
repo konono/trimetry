@@ -37,6 +37,7 @@ Trimetry は同一条件で複数回試行し、偶然性を排除して変更�
 
 ### 前提条件
 
+- [direnv](https://direnv.net/)（環境変数の管理に使用）
 - Go 1.25 以上（opentelemetry 依存による要件）
 - ベンチマーク対象の LLM エージェント CLI（使用する adapter に応じてインストール）:
 
@@ -151,11 +152,11 @@ make langfuse-up
 # opencode に公式 Langfuse プラグインをインストール
 mise run setup-langfuse
 
-# .envrc を編集してローカル Langfuse を指す
+# .envrc をローカル Langfuse 向けに設定
+# .envrc.example の cloud 向け export をコメントアウトし、
+# ローカル Langfuse 向けコメント（14-17 行目）のコメントを外す
 cp .envrc.example .envrc
-# LANGFUSE_BASEURL=http://localhost:3000
-# LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
-# LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+vi .envrc   # export LANGFUSE_BASEURL=http://localhost:3000 等を有効化
 direnv allow
 ```
 
@@ -415,6 +416,8 @@ trial が 1 つでも失敗・タイムアウト・キャンセルした場合�
 
 ```bash
 mise install                    # go, node, opencode, podman, docker-compose をインストール
+cp .envrc.example .envrc        # 環境変数テンプレートをコピーして編集
+direnv allow                    # 環境変数を有効化
 mise run build                  # ビルド
 mise run setup-langfuse         # Langfuse 公式プラグイン設定
 mise run setup-mlflow           # MLflow プラグイン設定

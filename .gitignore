@@ -15,6 +15,7 @@ benchmark-results/
 
 # Secrets
 .vllm-token
+opencode.json
 
 # aw config (contains secrets)
 .aw.yml
