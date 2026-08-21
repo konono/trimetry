@@ -10,8 +10,15 @@ benchmark-results/
 # Environment
 .env
 .env.*
-!.env.example
-!.env.langfuse.example
+.envrc
+!.envrc.example
+
+# Secrets
+.vllm-token
+
+# opencode local config (contains provider/API key references)
+opencode.json
+!opencode.json.example
 
 # aw config (contains secrets)
 .aw.yml
@@ -19,7 +26,6 @@ benchmark-results/
 
 # Go
 vendor/
-.envrc
 .opencode/
 .tracecraft/
 

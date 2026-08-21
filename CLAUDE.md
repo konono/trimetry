@@ -174,7 +174,9 @@ report:
 | `max_retries` | int | 3 | Langfuse: 送信失敗時のリトライ回数（指数バックオフ、0 でリトライ無効） |
 | `max_batch_queue` | int | 10000 | Langfuse: メモリ内最大保持イベント数（安全弁） |
 
-Langfuse 使用時は環境変数 `LANGFUSE_BASEURL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` を設定。
+環境変数は `.envrc`（direnv）で一元管理する。`.env` ファイルは使用しないこと（opencode 内蔵の Bun が `.env` を自動読み込みし、シェル環境変数を上書きするため不整合が起きる）。初回セットアップ: `cp .envrc.example .envrc && direnv allow`
+
+Langfuse 使用時は `LANGFUSE_BASEURL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` を設定。
 MLflow 使用時は `MLFLOW_TRACKING_URI`（必須）、`MLFLOW_TRACKING_TOKEN`（任意）を設定。
 
 ## 結果の比較

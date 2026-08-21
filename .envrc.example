@@ -1,0 +1,40 @@
+# Trimetry 環境変数
+# cp .envrc.example .envrc して値を設定し、direnv allow を実行してください
+#
+# 注意: opencode 内蔵の Bun ランタイムはプロジェクトルートの .env を自動読み込みし、
+# シェル環境変数を上書きします。環境変数の不整合を防ぐため .env は使わず、
+# .envrc に一本化しています。
+
+# === Langfuse (provider: langfuse) ===
+# export NODE_TLS_REJECT_UNAUTHORIZED="0"  # self-signed cert 用
+export LANGFUSE_BASEURL=https://cloud.langfuse.com
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+
+# --- ローカル Langfuse (make langfuse-up) を使う場合は以下に切り替え ---
+# export LANGFUSE_BASEURL=http://localhost:3000
+# export LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
+# export LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+
+# --- ローカル Langfuse 初期化のカスタマイズ (docker-compose.langfuse.yml のデフォルト値を上書き) ---
+# export LANGFUSE_INIT_ORG_ID=trimetry-org
+# export LANGFUSE_INIT_PROJECT_ID=trimetry-project
+# export LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-trimetry-local
+# export LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-trimetry-local
+# export LANGFUSE_INIT_USER_EMAIL=admin@trimetry.local
+# export LANGFUSE_INIT_USER_PASSWORD=adminadmin
+# export NEXTAUTH_SECRET=trimetry-local-secret
+# export SALT=trimetry-local-salt
+# export ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+
+# === MLflow (provider: mlflow) ===
+# export MLFLOW_TRACKING_URI=http://localhost:5000
+# export MLFLOW_TRACKING_TOKEN=          # 認証トークン (任意)
+# export MLFLOW_TRACKING_WORKSPACE=      # ワークスペース名 (RHOAI 用、任意)
+
+# === Enrichment ===
+# export TRIMETRY_ENRICHMENT_DIR=/tmp/trimetry-enrichment  # enrichment ファイルの読み取りディレクトリ
+
+# === opencode MLflow プラグイン ===
+# export MLFLOW_EXPERIMENT_ID=0          # opencode プラグインがトレースを送信する experiment
+# export MLFLOW_OPENCODE_DEBUG=true      # デバッグ出力を有効化

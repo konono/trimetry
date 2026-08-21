@@ -37,6 +37,7 @@ Trimetry は同一条件で複数回試行し、偶然性を排除して変更�
 
 ### 前提条件
 
+- [direnv](https://direnv.net/)（環境変数の管理に使用）
 - Go 1.25 以上（opentelemetry 依存による要件）
 - ベンチマーク対象の LLM エージェント CLI（使用する adapter に応じてインストール）:
 
@@ -151,18 +152,20 @@ make langfuse-up
 # opencode に公式 Langfuse プラグインをインストール
 mise run setup-langfuse
 
-# .env を編集してローカル Langfuse を指す
-cp .env.langfuse.example .env.langfuse
-# LANGFUSE_BASEURL=http://localhost:3000
-# LANGFUSE_PUBLIC_KEY=pk-lf-trimetry-local
-# LANGFUSE_SECRET_KEY=sk-lf-trimetry-local
+# .envrc をローカル Langfuse 向けに設定
+# cloud 向けの LANGFUSE_* export をコメントアウトし、
+# 「ローカル Langfuse」セクションのコメントを外す
+cp .envrc.example .envrc
+vi .envrc   # export LANGFUSE_BASEURL=http://localhost:3000 等を有効化
+direnv allow
 ```
 
 #### 外部 Langfuse を使う場合
 
 ```bash
-cp .env.example .env
-# .env を編集: LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定
+cp .envrc.example .envrc
+# .envrc を編集: LANGFUSE_BASEURL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY を設定
+direnv allow
 ```
 
 #### 設定ファイルでテレメトリを有効化
@@ -412,10 +415,13 @@ trial が 1 つでも失敗・タイムアウト・キャンセルした場合�
 ## セットアップ (mise)
 
 ```bash
-mise install                    # go, node, opencode, podman, docker-compose をインストール
-mise run build                  # ビルド
-mise run setup-langfuse         # Langfuse 公式プラグイン設定
-mise run setup-mlflow           # MLflow プラグイン設定
+mise install                           # go, node, opencode, podman, docker-compose をインストール
+cp .envrc.example .envrc               # 環境変数テンプレートをコピーして編集
+cp opencode.json.example opencode.json # opencode プロバイダー設定をコピーして編集
+direnv allow                           # 環境変数を有効化
+mise run build                         # ビルド
+mise run setup-langfuse                # Langfuse 公式プラグイン設定
+mise run setup-mlflow                  # MLflow プラグイン設定
 ```
 
 ## opencode プラグインの設定
