@@ -57,8 +57,12 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, input string, ec ExecutionC
 	if a.Continue {
 		args = append(args, "--continue")
 	}
-	if a.Model != "" {
-		args = append(args, "--model", a.Model)
+	model := a.Model
+	if model == "" {
+		model = ec.ModelName
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	if a.Effort != "" {
 		args = append(args, "--effort", a.Effort)

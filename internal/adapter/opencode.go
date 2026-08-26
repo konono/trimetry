@@ -25,7 +25,11 @@ func NewOpencodeAdapter(command, workingDir string) *OpencodeAdapter {
 func (a *OpencodeAdapter) Name() string { return "opencode" }
 
 func (a *OpencodeAdapter) Execute(ctx context.Context, input string, ec ExecutionContext) (*ExecutionResult, error) {
-	args := []string{a.Command, "run", "--format", "json", input}
+	args := []string{a.Command, "run", "--format", "json"}
+	if ec.ModelName != "" {
+		args = append(args, "--model", ec.ModelName)
+	}
+	args = append(args, input)
 	raw := runCLI(ctx, args, a.WorkingDir, ec)
 	parsed := parseOpencodeJSON(raw.Stdout)
 	return toExecutionResult(raw, parsed)
