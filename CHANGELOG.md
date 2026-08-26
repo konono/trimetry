@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/konono/trimetry/compare/v0.5.1...v0.6.0) (2026-08-26)
+
+
+### Features
+
+* Claude adapter の Langfuse テレメトリ対応とモデル名 CLI 渡し ([#17](https://github.com/konono/trimetry/issues/17)) ([483ba56](https://github.com/konono/trimetry/commit/483ba562dcf8d90566a833486221608f4ee10d8f))
+
 ## [0.5.1](https://github.com/konono/trimetry/compare/v0.5.0...v0.5.1) (2026-08-21)
 
 
