@@ -296,12 +296,14 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 		metadata["hostArch"] = enrichment.Environment.HostArch
 	}
 
-	output := buildTrialOutput(result)
-
 	tagsJSON, _ := json.Marshal(tags)
 	metadataJSON, _ := json.Marshal(metadata)
-	inputJSON, _ := json.Marshal(tc.Input)
-	outputJSON, _ := json.Marshal(output)
+	inputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "user", "content": tc.Input},
+	})
+	outputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "assistant", "content": result.Output},
+	})
 
 	otelAttrs := []map[string]any{
 		otelAttribute("langfuse.trace.name", traceName),
@@ -375,8 +377,12 @@ func (a *LangfuseAdapter) createDirectTrace(tc TrialContext, result TrialResult)
 
 	traceName := fmt.Sprintf("%s_trial-%d", tc.ScenarioID, tc.TrialNumber)
 
-	inputJSON, _ := json.Marshal(tc.Input)
-	outputJSON, _ := json.Marshal(buildTrialOutput(result))
+	inputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "user", "content": tc.Input},
+	})
+	outputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "assistant", "content": result.Output},
+	})
 
 	startNano := fmt.Sprintf("%d", result.StartedAt.UnixNano())
 	endNano := startNano
