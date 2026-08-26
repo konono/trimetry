@@ -186,6 +186,79 @@ func TestParseClaudeJSON_ErrorTool(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSON_SessionID(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"ses-abc-123","cwd":"/tmp"}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:01.000Z","message":{"model":"claude-3","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"result","result":"hi","session_id":"ses-abc-123","total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`,
+	}, "\n")
+
+	got := parseClaudeJSON(raw)
+
+	if got.SessionID != "ses-abc-123" {
+		t.Errorf("SessionID = %q, want %q", got.SessionID, "ses-abc-123")
+	}
+}
+
+func TestParseClaudeJSON_SessionID_FromResult(t *testing.T) {
+	raw := `{"type":"result","result":"hi","session_id":"ses-from-result","total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+
+	got := parseClaudeJSON(raw)
+
+	if got.SessionID != "ses-from-result" {
+		t.Errorf("SessionID = %q, want %q", got.SessionID, "ses-from-result")
+	}
+}
+
+func TestParseClaudeJSON_Thinking(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:01.000Z","message":{"model":"claude-3","content":[{"type":"thinking","thinking":"Let me think about this..."},{"type":"text","text":"The answer is 4."}],"usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"result","result":"The answer is 4.","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens_details":{"thinking_tokens":15}}}`,
+	}, "\n")
+
+	got := parseClaudeJSON(raw)
+
+	if len(got.Steps) < 1 {
+		t.Fatalf("Steps count = %d, want at least 1", len(got.Steps))
+	}
+	gen := got.Steps[0]
+	if len(gen.ThinkingParts) != 1 {
+		t.Fatalf("ThinkingParts count = %d, want 1", len(gen.ThinkingParts))
+	}
+	if gen.ThinkingParts[0] != "Let me think about this..." {
+		t.Errorf("ThinkingParts[0] = %q, want %q", gen.ThinkingParts[0], "Let me think about this...")
+	}
+	if !strings.Contains(got.Text, "The answer is 4.") {
+		t.Errorf("Text %q does not contain expected text", got.Text)
+	}
+}
+
+func TestParseClaudeJSON_ThinkingTokens(t *testing.T) {
+	raw := `{"type":"result","result":"answer","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens_details":{"thinking_tokens":200}}}`
+
+	got := parseClaudeJSON(raw)
+
+	if got.Tokens == nil {
+		t.Fatal("Tokens is nil")
+	}
+	if got.Tokens.Reasoning != 200 {
+		t.Errorf("Tokens.Reasoning = %d, want 200", got.Tokens.Reasoning)
+	}
+}
+
+func TestParseClaudeJSON_ThinkingTokensZeroWhenAbsent(t *testing.T) {
+	raw := `{"type":"result","result":"answer","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+
+	got := parseClaudeJSON(raw)
+
+	if got.Tokens == nil {
+		t.Fatal("Tokens is nil")
+	}
+	if got.Tokens.Reasoning != 0 {
+		t.Errorf("Tokens.Reasoning = %d, want 0", got.Tokens.Reasoning)
+	}
+}
+
 func TestParseTimestampMs(t *testing.T) {
 	tests := []struct {
 		name string

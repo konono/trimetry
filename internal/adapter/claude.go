@@ -57,8 +57,12 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, input string, ec ExecutionC
 	if a.Continue {
 		args = append(args, "--continue")
 	}
-	if a.Model != "" {
-		args = append(args, "--model", a.Model)
+	model := a.Model
+	if model == "" {
+		model = ec.ModelName
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	if a.Effort != "" {
 		args = append(args, "--effort", a.Effort)
@@ -85,6 +89,7 @@ type claudeEvent struct {
 		Content []struct {
 			Type      string `json:"type"`
 			Text      string `json:"text,omitempty"`
+			Thinking  string `json:"thinking,omitempty"`
 			Name      string `json:"name,omitempty"`
 			ID        string `json:"id,omitempty"`
 			ToolUseID string `json:"tool_use_id,omitempty"`
@@ -118,15 +123,19 @@ type claudeEvent struct {
 		OutputTokens             int64 `json:"output_tokens"`
 		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+		OutputTokensDetails      *struct {
+			ThinkingTokens int64 `json:"thinking_tokens"`
+		} `json:"output_tokens_details,omitempty"`
 	} `json:"usage,omitempty"`
 }
 
 type pendingGeneration struct {
-	step        StepDetail
-	textParts   []string
-	toolsCalled []string
-	toolTime    int64
-	tools       []StepDetail
+	step           StepDetail
+	textParts      []string
+	thinkingParts  []string
+	toolsCalled    []string
+	toolTime       int64
+	tools          []StepDetail
 }
 
 func parseClaudeJSON(raw string) parsedOutput {
@@ -141,6 +150,12 @@ func parseClaudeJSON(raw string) parsedOutput {
 		eventMs := parseTimestampMs(event.Timestamp)
 
 		switch event.Type {
+		case "system":
+			if event.SessionID != "" {
+				result.SessionID = event.SessionID
+			}
+			return
+
 		case "assistant":
 			if pendingGen != nil {
 				finalizeGeneration(pendingGen, eventMs, &result)
@@ -164,6 +179,10 @@ func parseClaudeJSON(raw string) parsedOutput {
 
 				for _, c := range event.Message.Content {
 					switch c.Type {
+					case "thinking":
+						if c.Thinking != "" {
+							gen.thinkingParts = append(gen.thinkingParts, c.Thinking)
+						}
 					case "text":
 						textParts = append(textParts, c.Text)
 						gen.textParts = append(gen.textParts, c.Text)
@@ -243,16 +262,24 @@ func parseClaudeJSON(raw string) parsedOutput {
 				result.CostUSD = event.TotalCostUSD
 			}
 			if event.Usage != nil {
+				var reasoning int64
+				if event.Usage.OutputTokensDetails != nil {
+					reasoning = event.Usage.OutputTokensDetails.ThinkingTokens
+				}
 				result.Tokens = &TokenInfo{
 					Input:      event.Usage.InputTokens,
 					Output:     event.Usage.OutputTokens,
 					Total:      event.Usage.InputTokens + event.Usage.OutputTokens,
+					Reasoning:  reasoning,
 					CacheRead:  event.Usage.CacheReadInputTokens,
 					CacheWrite: event.Usage.CacheCreationInputTokens,
 				}
 			}
 			if event.TTFTMs != nil {
 				result.TTFTMs = event.TTFTMs
+			}
+			if event.SessionID != "" {
+				result.SessionID = event.SessionID
 			}
 		}
 	})
@@ -277,6 +304,7 @@ func finalizeGeneration(gen *pendingGeneration, endMs int64, result *parsedOutpu
 		gen.step.LLMInferenceMs = 0
 	}
 	gen.step.ToolsCalled = gen.toolsCalled
+	gen.step.ThinkingParts = gen.thinkingParts
 
 	if len(gen.textParts) > 0 {
 		gen.step.Output = strings.Join(gen.textParts, "")
