@@ -4,7 +4,7 @@ docker-compose = "latest"
 go = "latest"
 jq = "latest"
 node = "lts"
-opencode = "latest"
+opencode = "1.18.22"
 podman = { version = "latest", rename_exe = "podman-remote" }
 
 [env]

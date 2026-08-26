@@ -45,8 +45,8 @@ trimetry のテレメトリデータが Langfuse / MLflow それぞれのプラ�
 | Model Provider | `modelProvider` metadata | `benchmark.model_provider` attribute |
 | Model Parameters | `modelParameters` metadata | `benchmark.model_parameters` attribute（JSON） |
 | Trial Number | `trialNumber` metadata | `benchmark.trial_number` attribute |
-| Input | `input` フィールド | `mlflow.spanInputs`（`{"prompt": "..."}` JSON） |
-| Output | `output` フィールド（`buildTrialOutput` の結果） | `mlflow.spanOutputs`（同内容の JSON） |
+| Input | `input` フィールド（ChatML 形式: `[{"role":"user","content":"..."}]`） | `mlflow.spanInputs`（`{"prompt": "..."}` JSON） |
+| Output | `output` フィールド（ChatML 形式: `[{"role":"assistant","content":"..."}]`） | `mlflow.spanOutputs`（同内容の JSON） |
 | Execution Status | `executionStatus` metadata | `executionStatus` attribute + OTEL status code |
 | Wall Time | `wallTimeMs` metadata | `wallTimeMs` attribute |
 | Retry Count | `retryCount` metadata | `retryCount` attribute |

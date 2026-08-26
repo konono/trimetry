@@ -352,7 +352,7 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 }
 
 // createDirectTrace builds the full OTLP trace hierarchy for adapters that
-// don't have an external Langfuse plugin (e.g. Claude, Cursor). The structure
+// don't have an external Langfuse plugin (e.g. Claude). The structure
 // mirrors the opencode Langfuse plugin: Turn (agent) → Generations → Tools.
 func (a *LangfuseAdapter) createDirectTrace(tc TrialContext, result TrialResult) resolvedTrace {
 	traceID := id.NewHexID(16)
