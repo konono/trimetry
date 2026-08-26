@@ -150,7 +150,7 @@ trimetry compare \
 make langfuse-up
 
 # opencode に公式 Langfuse プラグインをインストール
-mise run setup-langfuse
+mise run setup-opencode-plugin
 
 # .envrc をローカル Langfuse 向けに設定
 # cloud 向けの LANGFUSE_* export をコメントアウトし、
@@ -420,7 +420,7 @@ cp .envrc.example .envrc               # 環境変数テンプレートをコピ
 cp opencode.json.example opencode.json # opencode プロバイダー設定をコピーして編集
 direnv allow                           # 環境変数を有効化
 mise run build                         # ビルド
-mise run setup-langfuse                # Langfuse 公式プラグイン設定
+mise run setup-opencode-plugin                # Langfuse 公式プラグイン設定
 mise run setup-mlflow                  # MLflow プラグイン設定
 ```
 
@@ -431,7 +431,7 @@ opencode adapter でテレメトリを使う場合、プラグインのインス
 ### Langfuse（公式プラグイン）
 
 ```bash
-mise run setup-langfuse   # 公式プラグインをインストール
+mise run setup-opencode-plugin   # 公式プラグインをインストール
 ```
 
 ```json

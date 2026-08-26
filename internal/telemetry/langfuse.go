@@ -127,7 +127,7 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 	a.mu.Unlock()
 
 	var resolved resolvedTrace
-	if result.AdapterName == "claude" || result.AdapterName == "cursor" {
+	if result.AdapterName == "claude" {
 		resolved = a.createDirectTrace(tc, result)
 	} else {
 		resolved = a.resolveTrace(result)
@@ -315,7 +315,7 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 		otelAttribute("langfuse.observation.input", string(inputJSON)),
 		otelAttribute("langfuse.observation.output", string(outputJSON)),
 		otelAttribute("langfuse.observation.metadata", string(metadataJSON)),
-		otelAttribute("langfuse.internal.is_app_root", "false"),
+		otelBoolAttribute("langfuse.internal.is_app_root", false),
 	}
 
 	now := time.Now()
@@ -348,27 +348,7 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 		return
 	}
 
-	req, err := http.NewRequest("POST", a.baseURL+"/api/public/otel/v1/traces", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("WARNING: Langfuse OTLP request failed: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(a.publicKey, a.secretKey)
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		log.Printf("WARNING: Langfuse OTLP send failed: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		log.Printf("WARNING: Langfuse OTLP returned %d: %s", resp.StatusCode, string(respBody))
-	} else {
-		log.Printf("  Langfuse: annotated trace %s for trial %s", resolved.TraceID, result.TrialID)
-	}
+	a.sendOTLP(body, fmt.Sprintf("annotated trace %s for trial %s", resolved.TraceID, result.TrialID))
 }
 
 // createDirectTrace builds the full OTLP trace hierarchy for adapters that
@@ -597,30 +577,10 @@ func (a *LangfuseAdapter) createDirectTrace(tc TrialContext, result TrialResult)
 		return resolvedTrace{}
 	}
 
-	req, err := http.NewRequest("POST", a.baseURL+"/api/public/otel/v1/traces", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("WARNING: Langfuse OTLP request failed: %v", err)
+	msg := fmt.Sprintf("created trace %s with %d spans for trial %s", traceID, len(spans), result.TrialID)
+	if !a.sendOTLP(body, msg) {
 		return resolvedTrace{}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-langfuse-ingestion-version", "4")
-	req.Header.Set("x-langfuse-public-key", a.publicKey)
-	req.SetBasicAuth(a.publicKey, a.secretKey)
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		log.Printf("WARNING: Langfuse OTLP send failed: %v", err)
-		return resolvedTrace{}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		log.Printf("WARNING: Langfuse OTLP returned %d: %s", resp.StatusCode, string(respBody))
-		return resolvedTrace{}
-	}
-
-	log.Printf("  Langfuse: created trace %s with %d spans for trial %s", traceID, len(spans), result.TrialID)
 	return resolvedTrace{TraceID: traceID, RootSpanID: turnSpanID}
 }
 
@@ -657,6 +617,34 @@ func buildGenerationOutput(step adapter.StepDetail) []map[string]any {
 	return []map[string]any{msg}
 }
 
+func (a *LangfuseAdapter) sendOTLP(body []byte, successMsg string) bool {
+	req, err := http.NewRequest("POST", a.baseURL+"/api/public/otel/v1/traces", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP request failed: %v", err)
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-langfuse-ingestion-version", "4")
+	req.Header.Set("x-langfuse-public-key", a.publicKey)
+	req.SetBasicAuth(a.publicKey, a.secretKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP send failed: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("WARNING: Langfuse OTLP returned %d: %s", resp.StatusCode, string(respBody))
+		return false
+	}
+
+	log.Printf("  Langfuse: %s", successMsg)
+	return true
+}
+
 func (a *LangfuseAdapter) buildAnnotationSpan(resolved resolvedTrace, nowNano string, attrs []map[string]any) map[string]any {
 	span := map[string]any{
 		"traceId":           resolved.TraceID,
@@ -678,17 +666,6 @@ func otelBoolAttribute(key string, value bool) map[string]any {
 	return map[string]any{
 		"key":   key,
 		"value": map[string]any{"boolValue": value},
-	}
-}
-
-func otelTagsAttribute(key string, tags []string) map[string]any {
-	values := make([]map[string]any, len(tags))
-	for i, t := range tags {
-		values[i] = map[string]any{"stringValue": t}
-	}
-	return map[string]any{
-		"key":   key,
-		"value": map[string]any{"arrayValue": map[string]any{"values": values}},
 	}
 }
 
