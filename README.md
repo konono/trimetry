@@ -55,12 +55,6 @@ Trimetry は同一条件で複数回試行し、偶然性を排除して変更�
 go install github.com/konono/trimetry/cmd/trimetry@latest
 ```
 
-バージョン指定:
-
-```bash
-go install github.com/konono/trimetry/cmd/trimetry@v0.1.0
-```
-
 または [GitHub Releases](https://github.com/konono/trimetry/releases) からビルド済みバイナリをダウンロードできます。
 
 ## Quick Start
