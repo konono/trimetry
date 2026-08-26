@@ -131,9 +131,10 @@ func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
 		resolved = a.createDirectTrace(tc, result)
 	} else {
 		resolved = a.resolveTrace(result)
-		if resolved.TraceID != "" {
-			a.annotateTrace(resolved, tc, result)
-		}
+	}
+
+	if resolved.TraceID != "" {
+		a.annotateTrace(resolved, tc, result)
 	}
 
 	if resolved.TraceID == "" {
@@ -311,6 +312,9 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 		otelAttribute("langfuse.trace.metadata", string(metadataJSON)),
 		otelAttribute("langfuse.trace.input", string(inputJSON)),
 		otelAttribute("langfuse.trace.output", string(outputJSON)),
+		otelAttribute("langfuse.observation.input", string(inputJSON)),
+		otelAttribute("langfuse.observation.output", string(outputJSON)),
+		otelAttribute("langfuse.observation.metadata", string(metadataJSON)),
 		otelAttribute("langfuse.internal.is_app_root", "false"),
 	}
 
