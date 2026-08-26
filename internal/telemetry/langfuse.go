@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/konono/trimetry/internal/adapter"
 	"github.com/konono/trimetry/internal/id"
 	mdl "github.com/konono/trimetry/internal/model"
 	"github.com/konono/trimetry/internal/version"
@@ -120,22 +121,30 @@ type resolvedTrace struct {
 }
 
 func (a *LangfuseAdapter) FinishTrial(result TrialResult) {
-	resolved := a.resolveTrace(result)
-
 	a.mu.Lock()
 	tc := a.trialContexts[result.TrialID]
 	delete(a.trialContexts, result.TrialID)
 	a.mu.Unlock()
 
+	var resolved resolvedTrace
+	if result.AdapterName == "claude" || result.AdapterName == "cursor" {
+		resolved = a.createDirectTrace(tc, result)
+	} else {
+		resolved = a.resolveTrace(result)
+		if resolved.TraceID != "" {
+			a.annotateTrace(resolved, tc, result)
+		}
+	}
+
 	if resolved.TraceID == "" {
 		log.Printf("WARNING: Langfuse: could not resolve traceId for trial %s (sessionID=%q), skipping trace annotation",
 			result.TrialID, result.SessionID)
-	} else {
-		a.annotateTrace(resolved, tc, result)
-		for _, eval := range result.Evaluations {
-			if eval.Score != nil {
-				a.addScore(resolved.TraceID, eval)
-			}
+		return
+	}
+
+	for _, eval := range result.Evaluations {
+		if eval.Score != nil {
+			a.addScore(resolved.TraceID, eval)
 		}
 	}
 }
@@ -356,6 +365,288 @@ func (a *LangfuseAdapter) annotateTrace(resolved resolvedTrace, tc TrialContext,
 	}
 }
 
+// createDirectTrace builds the full OTLP trace hierarchy for adapters that
+// don't have an external Langfuse plugin (e.g. Claude, Cursor). The structure
+// mirrors the opencode Langfuse plugin: Turn (agent) → Generations → Tools.
+func (a *LangfuseAdapter) createDirectTrace(tc TrialContext, result TrialResult) resolvedTrace {
+	traceID := id.NewHexID(16)
+	turnSpanID := id.NewHexID(8)
+	adapterName := result.AdapterName
+
+	traceName := fmt.Sprintf("%s_trial-%d", tc.ScenarioID, tc.TrialNumber)
+
+	inputJSON, _ := json.Marshal(tc.Input)
+	outputJSON, _ := json.Marshal(buildTrialOutput(result))
+
+	startNano := fmt.Sprintf("%d", result.StartedAt.UnixNano())
+	endNano := startNano
+	if !result.StartedAt.IsZero() && result.Metrics != nil {
+		endTime := result.StartedAt.Add(time.Duration(result.Metrics.WallTimeMs) * time.Millisecond)
+		endNano = fmt.Sprintf("%d", endTime.UnixNano())
+	}
+
+	metadata := map[string]any{
+		"benchmarkRunId":  tc.BenchmarkRunID,
+		"scenarioId":      tc.ScenarioID,
+		"scenarioVersion": tc.ScenarioVersion,
+		"trialId":         result.TrialID,
+		"trialNumber":     tc.TrialNumber,
+		"modelName":       tc.ModelName,
+		"modelProvider":   tc.ModelProvider,
+		"adapterName":     adapterName,
+		"executionStatus": string(result.ExecutionStatus),
+		"trimetryVersion": version.Version,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	tags := []string{
+		"benchmark",
+		fmt.Sprintf("scenario:%s", tc.ScenarioID),
+		fmt.Sprintf("model:%s", tc.ModelName),
+	}
+	if tc.BenchmarkName != "" {
+		tags = append(tags, fmt.Sprintf("benchmark:%s", tc.BenchmarkName))
+	}
+	tagsJSON, _ := json.Marshal(tags)
+
+	// Turn span (root)
+	turnAttrs := []map[string]any{
+		otelAttribute("langfuse.observation.type", "agent"),
+		otelBoolAttribute("langfuse.internal.is_app_root", true),
+		otelAttribute("langfuse.observation.input", string(inputJSON)),
+		otelAttribute("langfuse.observation.output", string(outputJSON)),
+		otelAttribute("langfuse.observation.metadata", string(metadataJSON)),
+		otelAttribute("langfuse.trace.name", traceName),
+		otelAttribute("langfuse.trace.tags", string(tagsJSON)),
+	}
+	if result.SessionID != "" {
+		turnAttrs = append(turnAttrs, otelAttribute("session.id", result.SessionID))
+	}
+
+	spans := []map[string]any{
+		{
+			"traceId":           traceID,
+			"spanId":            turnSpanID,
+			"name":              adapterName + ".turn",
+			"kind":              1,
+			"startTimeUnixNano": startNano,
+			"endTimeUnixNano":   endNano,
+			"attributes":        turnAttrs,
+			"status":            map[string]any{"code": 1},
+		},
+	}
+
+	// User message event
+	userSpanID := id.NewHexID(8)
+	userInputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "user", "content": tc.Input},
+	})
+	spans = append(spans, map[string]any{
+		"traceId":           traceID,
+		"spanId":            userSpanID,
+		"parentSpanId":      turnSpanID,
+		"name":              adapterName + ".message.user",
+		"kind":              1,
+		"startTimeUnixNano": startNano,
+		"endTimeUnixNano":   startNano,
+		"attributes": []map[string]any{
+			otelAttribute("langfuse.observation.type", "event"),
+			otelAttribute("langfuse.observation.input", string(userInputJSON)),
+		},
+		"status": map[string]any{"code": 1},
+	})
+
+	// Generation + Tool spans from steps
+	steps, _ := prepareEnrichedSteps(result)
+	var currentGenSpanID string
+
+	for _, step := range steps {
+		spanID := id.NewHexID(8)
+
+		switch step.Type {
+		case "generation":
+			currentGenSpanID = spanID
+			genStartNano := fmt.Sprintf("%d", time.UnixMilli(step.StartMs).UnixNano())
+			genEndNano := genStartNano
+			if step.EndMs > 0 {
+				genEndNano = fmt.Sprintf("%d", time.UnixMilli(step.EndMs).UnixNano())
+			}
+
+			genOutput := buildGenerationOutput(step)
+			genOutputJSON, _ := json.Marshal(genOutput)
+
+			modelName := tc.ModelName
+			if step.Model != "" {
+				modelName = step.Model
+			}
+
+			genMetaJSON, _ := json.Marshal(map[string]any{"agent": adapterName})
+			genAttrs := []map[string]any{
+				otelAttribute("langfuse.observation.type", "generation"),
+				otelAttribute("langfuse.observation.model.name", modelName),
+				otelAttribute("langfuse.observation.output", string(genOutputJSON)),
+				otelAttribute("langfuse.observation.metadata", string(genMetaJSON)),
+				otelBoolAttribute("langfuse.internal.is_app_root", false),
+			}
+
+			if step.Tokens != nil {
+				usageDetails := map[string]int64{
+					"input":       step.Tokens.Input,
+					"output":      step.Tokens.Output,
+					"reasoning":   step.Tokens.Reasoning,
+					"cache_read":  step.Tokens.CacheRead,
+					"cache_write": step.Tokens.CacheWrite,
+					"total":       step.Tokens.Total,
+				}
+				usageJSON, _ := json.Marshal(usageDetails)
+				genAttrs = append(genAttrs, otelAttribute("langfuse.observation.usage_details", string(usageJSON)))
+			}
+
+			if step.Input != nil {
+				stepInputJSON, _ := json.Marshal(step.Input)
+				genAttrs = append(genAttrs, otelAttribute("langfuse.observation.input", string(stepInputJSON)))
+			}
+
+			spans = append(spans, map[string]any{
+				"traceId":           traceID,
+				"spanId":            spanID,
+				"parentSpanId":      turnSpanID,
+				"name":              adapterName + ".generation",
+				"kind":              1,
+				"startTimeUnixNano": genStartNano,
+				"endTimeUnixNano":   genEndNano,
+				"attributes":        genAttrs,
+				"status":            map[string]any{"code": 1},
+			})
+
+		case "tool":
+			parentID := currentGenSpanID
+			if parentID == "" {
+				parentID = turnSpanID
+			}
+
+			toolStartNano := fmt.Sprintf("%d", time.UnixMilli(step.StartMs).UnixNano())
+			toolEndNano := toolStartNano
+			if step.EndMs > 0 {
+				toolEndNano = fmt.Sprintf("%d", time.UnixMilli(step.EndMs).UnixNano())
+			}
+
+			toolInputJSON, _ := json.Marshal(step.Input)
+			toolOutputJSON, _ := json.Marshal(map[string]any{
+				"title":  step.Title,
+				"output": step.Output,
+			})
+
+			toolMetaJSON, _ := json.Marshal(map[string]any{
+				"callID": step.CallID,
+				"tool":   step.Name,
+			})
+			toolAttrs := []map[string]any{
+				otelAttribute("langfuse.observation.type", "span"),
+				otelAttribute("langfuse.observation.input", string(toolInputJSON)),
+				otelAttribute("langfuse.observation.output", string(toolOutputJSON)),
+				otelAttribute("langfuse.observation.metadata", string(toolMetaJSON)),
+				otelBoolAttribute("langfuse.internal.is_app_root", false),
+			}
+
+			spans = append(spans, map[string]any{
+				"traceId":           traceID,
+				"spanId":            spanID,
+				"parentSpanId":      parentID,
+				"name":              step.Name,
+				"kind":              1,
+				"startTimeUnixNano": toolStartNano,
+				"endTimeUnixNano":   toolEndNano,
+				"attributes":        toolAttrs,
+				"status":            map[string]any{"code": 1},
+			})
+		}
+	}
+
+	payload := map[string]any{
+		"resourceSpans": []map[string]any{
+			{
+				"resource": map[string]any{
+					"attributes": []map[string]any{
+						otelAttribute("service.name", "trimetry"),
+					},
+				},
+				"scopeSpans": []map[string]any{
+					{
+						"scope": map[string]any{"name": "trimetry"},
+						"spans": spans,
+					},
+				},
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP marshal failed: %v", err)
+		return resolvedTrace{}
+	}
+
+	req, err := http.NewRequest("POST", a.baseURL+"/api/public/otel/v1/traces", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP request failed: %v", err)
+		return resolvedTrace{}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-langfuse-ingestion-version", "4")
+	req.Header.Set("x-langfuse-public-key", a.publicKey)
+	req.SetBasicAuth(a.publicKey, a.secretKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("WARNING: Langfuse OTLP send failed: %v", err)
+		return resolvedTrace{}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("WARNING: Langfuse OTLP returned %d: %s", resp.StatusCode, string(respBody))
+		return resolvedTrace{}
+	}
+
+	log.Printf("  Langfuse: created trace %s with %d spans for trial %s", traceID, len(spans), result.TrialID)
+	return resolvedTrace{TraceID: traceID, RootSpanID: turnSpanID}
+}
+
+// buildGenerationOutput formats a generation step's output in the opencode
+// plugin's assistant message format for Langfuse.
+func buildGenerationOutput(step adapter.StepDetail) []map[string]any {
+	msg := map[string]any{"role": "assistant"}
+
+	if text, ok := step.Output.(string); ok && text != "" {
+		msg["content"] = text
+	}
+
+	if len(step.ThinkingParts) > 0 {
+		var thinking []map[string]any
+		for _, t := range step.ThinkingParts {
+			thinking = append(thinking, map[string]any{
+				"type":    "thinking",
+				"content": t,
+			})
+		}
+		msg["thinking"] = thinking
+	}
+
+	if len(step.ToolsCalled) > 0 {
+		var toolCalls []map[string]any
+		for _, name := range step.ToolsCalled {
+			toolCalls = append(toolCalls, map[string]any{
+				"name": name,
+			})
+		}
+		msg["tool_calls"] = toolCalls
+	}
+
+	return []map[string]any{msg}
+}
+
 func (a *LangfuseAdapter) buildAnnotationSpan(resolved resolvedTrace, nowNano string, attrs []map[string]any) map[string]any {
 	span := map[string]any{
 		"traceId":           resolved.TraceID,
@@ -371,6 +662,24 @@ func (a *LangfuseAdapter) buildAnnotationSpan(resolved resolvedTrace, nowNano st
 		span["parentSpanId"] = resolved.RootSpanID
 	}
 	return span
+}
+
+func otelBoolAttribute(key string, value bool) map[string]any {
+	return map[string]any{
+		"key":   key,
+		"value": map[string]any{"boolValue": value},
+	}
+}
+
+func otelTagsAttribute(key string, tags []string) map[string]any {
+	values := make([]map[string]any, len(tags))
+	for i, t := range tags {
+		values[i] = map[string]any{"stringValue": t}
+	}
+	return map[string]any{
+		"key":   key,
+		"value": map[string]any{"arrayValue": map[string]any{"values": values}},
+	}
 }
 
 func otelAttribute(key string, value any) map[string]any {

@@ -4,7 +4,7 @@ docker-compose = "latest"
 go = "latest"
 jq = "latest"
 node = "lts"
-opencode = "1.18.12"
+opencode = "latest"
 podman = { version = "latest", rename_exe = "podman-remote" }
 
 [env]
@@ -31,16 +31,27 @@ else
 fi
 '''
 
-[tasks.setup-langfuse]
-description = "opencode + Langfuse 公式プラグインをセットアップ"
+[tasks.setup-opencode-plugin]
+description = "opencode を最新化し observability プラグインをセットアップ"
 run = """
-echo "==> [1/2] 旧プラグイン削除 (競合回避)"
+echo "==> [1/4] opencode を最新版に更新"
+mise upgrade opencode
+echo "    opencode $(opencode -v)"
+
+echo "==> [2/4] プラグインキャッシュ削除 (バージョン不整合回避)"
 rm -rf ~/.cache/opencode/packages/@konono 2>/dev/null || true
 rm -rf ~/.cache/opencode/packages/@mlflow 2>/dev/null || true
 rm -rf ~/.cache/opencode/packages/@langfuse 2>/dev/null || true
 
-echo "==> [2/2] Langfuse 公式プラグインインストール"
+echo "==> [3/4] Langfuse 公式プラグインインストール"
 opencode plugin @langfuse/opencode-observability-plugin -f
+
+echo "==> [4/4] ローカル plugin SDK を opencode に合わせて更新"
+if [ -f .opencode/package.json ]; then
+  OPENCODE_VER=$(opencode -v)
+  cd .opencode && npm install "@opencode-ai/plugin@${OPENCODE_VER}" --save --silent 2>&1 && cd ..
+  echo "    @opencode-ai/plugin@${OPENCODE_VER}"
+fi
 
 echo ""
 echo "==> Setup complete!"

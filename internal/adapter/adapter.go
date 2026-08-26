@@ -63,7 +63,8 @@ type StepDetail struct {
 	Display *ToolDisplay
 
 	// generation-specific
-	TTFTMs *int64 // Time To First Token within this step
+	ThinkingParts []string // reasoning/thinking text blocks
+	TTFTMs        *int64   // Time To First Token within this step
 }
 
 type ToolDisplay struct {
