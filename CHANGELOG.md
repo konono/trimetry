@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/konono/trimetry/compare/v0.6.0...v0.6.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* trimetry.annotate の observation type を EVENT に変更 ([#19](https://github.com/konono/trimetry/issues/19)) ([1536524](https://github.com/konono/trimetry/commit/15365246451b8069a19a3dc652425d8587a879e9))
+
 ## [0.6.0](https://github.com/konono/trimetry/compare/v0.5.1...v0.6.0) (2026-08-26)
 
 
