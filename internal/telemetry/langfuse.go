@@ -653,7 +653,7 @@ func (a *LangfuseAdapter) buildAnnotationSpan(resolved resolvedTrace, nowNano st
 		"kind":              1,
 		"startTimeUnixNano": nowNano,
 		"endTimeUnixNano":   nowNano,
-		"attributes":        attrs,
+		"attributes":        append(attrs, otelAttribute("langfuse.observation.type", "event")),
 		"status":            map[string]any{"code": 1},
 	}
 	if resolved.RootSpanID != "" {
