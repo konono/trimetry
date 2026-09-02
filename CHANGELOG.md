@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/konono/trimetry/compare/v0.6.1...v0.6.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* Claude adapter の thinking イベントを generation にマージ ([#21](https://github.com/konono/trimetry/issues/21)) ([fe39e80](https://github.com/konono/trimetry/commit/fe39e80c5b72afe95d238784582ce9e482187206))
+
 ## [0.6.1](https://github.com/konono/trimetry/compare/v0.6.0...v0.6.1) (2026-08-27)
 
 
