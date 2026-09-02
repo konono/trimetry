@@ -292,5 +292,92 @@ func TestParseTimestampMs(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSON_SplitThinkingMerge(t *testing.T) {
+	// Claude Code splits one API turn into two assistant events:
+	// 1. thinking-only  2. text/tool_use
+	raw := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:01.000Z","message":{"model":"claude-3","content":[{"type":"thinking","thinking":"reasoning here"}],"usage":{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:02.000Z","message":{"model":"claude-3","content":[{"type":"text","text":"answer"}],"usage":{"input_tokens":0,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"result","result":"answer","usage":{"input_tokens":100,"output_tokens":25,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`,
+	}, "\n")
+
+	got := parseClaudeJSON(raw)
+
+	if len(got.Steps) != 1 {
+		t.Fatalf("Steps count = %d, want 1 (merged generation)", len(got.Steps))
+	}
+	gen := got.Steps[0]
+	if len(gen.ThinkingParts) != 1 || gen.ThinkingParts[0] != "reasoning here" {
+		t.Errorf("ThinkingParts = %v, want [reasoning here]", gen.ThinkingParts)
+	}
+	if gen.Tokens == nil {
+		t.Fatal("Tokens is nil")
+	}
+	if gen.Tokens.Input != 100 {
+		t.Errorf("Tokens.Input = %d, want 100", gen.Tokens.Input)
+	}
+	if gen.Tokens.Output != 25 {
+		t.Errorf("Tokens.Output = %d, want 25", gen.Tokens.Output)
+	}
+}
+
+func TestParseClaudeJSON_ThinkingAfterToolUse(t *testing.T) {
+	// turn1: tool_use → tool_result → turn2: thinking-only → text
+	// The thinking-only event must NOT merge into turn1's generation.
+	raw := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:01.000Z","message":{"model":"claude-3","content":[{"type":"tool_use","id":"tu-1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"user","timestamp":"2024-01-01T00:00:02.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tu-1","content":"file.go"}]}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:03.000Z","message":{"model":"claude-3","content":[{"type":"thinking","thinking":"now I know"}],"usage":{"input_tokens":80,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:04.000Z","message":{"model":"claude-3","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":0,"output_tokens":15,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"result","result":"done","usage":{"input_tokens":130,"output_tokens":30,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`,
+	}, "\n")
+
+	got := parseClaudeJSON(raw)
+
+	// Expect: gen1 (tool_use, no thinking), tool1, gen2 (thinking + text)
+	if len(got.Steps) != 3 {
+		t.Fatalf("Steps count = %d, want 3", len(got.Steps))
+	}
+	gen1 := got.Steps[0]
+	if len(gen1.ThinkingParts) != 0 {
+		t.Errorf("gen1.ThinkingParts = %v, want empty", gen1.ThinkingParts)
+	}
+	if got.Steps[1].Type != StepTypeTool {
+		t.Errorf("Steps[1].Type = %q, want %q", got.Steps[1].Type, StepTypeTool)
+	}
+	gen2 := got.Steps[2]
+	if len(gen2.ThinkingParts) != 1 || gen2.ThinkingParts[0] != "now I know" {
+		t.Errorf("gen2.ThinkingParts = %v, want [now I know]", gen2.ThinkingParts)
+	}
+	if !strings.Contains(got.Text, "done") {
+		t.Errorf("Text %q missing 'done'", got.Text)
+	}
+}
+
+func TestParseClaudeJSON_MultiTurnThinking(t *testing.T) {
+	// turn1: thinking→text, turn2: thinking→text
+	// Each turn's thinking must stay with its own generation.
+	raw := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:01.000Z","message":{"model":"claude-3","content":[{"type":"thinking","thinking":"t1"}],"usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:02.000Z","message":{"model":"claude-3","content":[{"type":"text","text":"first"}],"usage":{"input_tokens":0,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"user","timestamp":"2024-01-01T00:00:03.000Z","message":{"content":[{"type":"text","text":"next"}]}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:04.000Z","message":{"model":"claude-3","content":[{"type":"thinking","thinking":"t2"}],"usage":{"input_tokens":20,"output_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"assistant","timestamp":"2024-01-01T00:00:05.000Z","message":{"model":"claude-3","content":[{"type":"text","text":"second"}],"usage":{"input_tokens":0,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`,
+		`{"type":"result","result":"second","usage":{"input_tokens":30,"output_tokens":26,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`,
+	}, "\n")
+
+	got := parseClaudeJSON(raw)
+
+	if len(got.Steps) != 2 {
+		t.Fatalf("Steps count = %d, want 2", len(got.Steps))
+	}
+	if got.Steps[0].ThinkingParts[0] != "t1" {
+		t.Errorf("Steps[0].ThinkingParts[0] = %q, want t1", got.Steps[0].ThinkingParts[0])
+	}
+	if got.Steps[1].ThinkingParts[0] != "t2" {
+		t.Errorf("Steps[1].ThinkingParts[0] = %q, want t2", got.Steps[1].ThinkingParts[0])
+	}
+}
+
 func float64Ptr(v float64) *float64 { return &v }
 func int64Ptr(v int64) *int64       { return &v }
