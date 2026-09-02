@@ -85,7 +85,6 @@ type claudeEvent struct {
 	Timestamp string `json:"timestamp,omitempty"`
 
 	Message *struct {
-		ID      string `json:"id,omitempty"`
 		Model   string `json:"model,omitempty"`
 		Content []struct {
 			Type      string `json:"type"`
@@ -158,30 +157,15 @@ func parseClaudeJSON(raw string) parsedOutput {
 			return
 
 		case "assistant":
-			hasThinkingOnly := false
-			if event.Message != nil {
-				hasThinking := false
-				hasNonThinking := false
-				for _, c := range event.Message.Content {
-					if c.Type == "thinking" {
-						hasThinking = true
-					} else {
-						hasNonThinking = true
-					}
-				}
-				hasThinkingOnly = hasThinking && !hasNonThinking
-			}
-
-			// A thinking-only event is the first half of an API turn that
-			// Claude Code splits across two assistant events.  Merge it
-			// forward into the next assistant event instead of finalizing
-			// it as a standalone (empty) generation.
-			if pendingGen != nil && !hasThinkingOnly {
-				// Also merge if the pending gen is thinking-only (carry
-				// its thinkingParts into this new generation).
-				if len(pendingGen.thinkingParts) > 0 && len(pendingGen.textParts) == 0 && len(pendingGen.toolsCalled) == 0 {
-					// Don't finalize — we'll merge below
-				} else {
+			// Claude Code splits one API turn into a thinking-only assistant
+			// event followed by a text/tool_use assistant event.  When the
+			// pending generation contains only thinking (no text or tools),
+			// we merge the next assistant event into it rather than finalizing
+			// an empty generation.
+			if pendingGen != nil {
+				pendingIsThinkingOnly := len(pendingGen.thinkingParts) > 0 &&
+					len(pendingGen.textParts) == 0 && len(pendingGen.toolsCalled) == 0
+				if !pendingIsThinkingOnly {
 					finalizeGeneration(pendingGen, eventMs, &result)
 					pendingGen = nil
 					pendingToolMap = make(map[string]int)
