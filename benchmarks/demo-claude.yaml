@@ -1,0 +1,47 @@
+benchmark:
+  name: claude-code-analysis-demo
+  trials: 1
+  concurrency: 1
+  timeout_seconds: 300
+
+scenarios:
+  - id: repo-analysis
+    version: "1"
+    name: コードベース構造分析
+    input: |
+      この Go リポジトリを詳細に分析し、以下の内容を Markdown レポートとして出力してください。
+
+      1. リポジトリ概要
+         - .go ファイルの総数（vendor/ を除く）
+         - Go コードの総行数
+         - テストファイル（_test.go）の数と、テストカバレッジの網羅性の評価
+
+      2. アーキテクチャ分析
+         - internal/ 配下の各パッケージの責務と、パッケージ間の依存関係を図示（ASCII）
+         - 主要なインターフェースとその実装の一覧
+
+      3. コード品質の所見
+         - 行数が最も多い上位5ファイルと、それぞれの複雑度の評価
+         - エラーハンドリングのパターン分析（errors.New vs fmt.Errorf vs カスタムエラー型の使い分け）
+         - 改善の余地がある箇所を3つ挙げ、具体的な理由とともに説明
+
+      分析は実際にファイルを読んで行い、推測で補完しないでください。
+    timeout_seconds: 300
+
+models:
+  - name: claude-opus-4-6
+    provider: anthropic
+
+adapter:
+  type: claude
+  options:
+    working_directory: "."
+
+telemetry:
+  enabled: true
+  provider: langfuse
+  flush_on_trial_end: true
+
+report:
+  output_directory: benchmark-results
+  formats: [json, markdown]

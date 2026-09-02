@@ -85,6 +85,7 @@ type claudeEvent struct {
 	Timestamp string `json:"timestamp,omitempty"`
 
 	Message *struct {
+		ID      string `json:"id,omitempty"`
 		Model   string `json:"model,omitempty"`
 		Content []struct {
 			Type      string `json:"type"`
@@ -157,38 +158,65 @@ func parseClaudeJSON(raw string) parsedOutput {
 			return
 
 		case "assistant":
-			if pendingGen != nil {
-				finalizeGeneration(pendingGen, eventMs, &result)
-				pendingToolMap = make(map[string]int)
+			hasThinkingOnly := false
+			if event.Message != nil {
+				hasThinking := false
+				hasNonThinking := false
+				for _, c := range event.Message.Content {
+					if c.Type == "thinking" {
+						hasThinking = true
+					} else {
+						hasNonThinking = true
+					}
+				}
+				hasThinkingOnly = hasThinking && !hasNonThinking
 			}
 
-			gen := &pendingGeneration{
-				step: StepDetail{
-					Type:    StepTypeGeneration,
-					Name:    "llm",
-					Status:  "completed",
-					StartMs: eventMs,
-					Input:   lastUserInput,
-				},
+			// A thinking-only event is the first half of an API turn that
+			// Claude Code splits across two assistant events.  Merge it
+			// forward into the next assistant event instead of finalizing
+			// it as a standalone (empty) generation.
+			if pendingGen != nil && !hasThinkingOnly {
+				// Also merge if the pending gen is thinking-only (carry
+				// its thinkingParts into this new generation).
+				if len(pendingGen.thinkingParts) > 0 && len(pendingGen.textParts) == 0 && len(pendingGen.toolsCalled) == 0 {
+					// Don't finalize — we'll merge below
+				} else {
+					finalizeGeneration(pendingGen, eventMs, &result)
+					pendingGen = nil
+					pendingToolMap = make(map[string]int)
+				}
+			}
+
+			if pendingGen == nil {
+				pendingGen = &pendingGeneration{
+					step: StepDetail{
+						Type:    StepTypeGeneration,
+						Name:    "llm",
+						Status:  "completed",
+						StartMs: eventMs,
+						Input:   lastUserInput,
+					},
+				}
 			}
 
 			if event.Message != nil {
 				if event.Message.Model != "" {
-					gen.step.Model = event.Message.Model
+					pendingGen.step.Model = event.Message.Model
 				}
 
 				for _, c := range event.Message.Content {
 					switch c.Type {
 					case "thinking":
 						if c.Thinking != "" {
-							gen.thinkingParts = append(gen.thinkingParts, c.Thinking)
+							pendingGen.thinkingParts = append(pendingGen.thinkingParts, c.Thinking)
 						}
 					case "text":
 						textParts = append(textParts, c.Text)
-						gen.textParts = append(gen.textParts, c.Text)
+						pendingGen.textParts = append(pendingGen.textParts, c.Text)
 					case "tool_use":
 						if c.Name != "" {
-							gen.toolsCalled = append(gen.toolsCalled, c.Name)
+							pendingGen.toolsCalled = append(pendingGen.toolsCalled, c.Name)
 
 							toolStep := StepDetail{
 								Type:    StepTypeTool,
@@ -198,24 +226,23 @@ func parseClaudeJSON(raw string) parsedOutput {
 								StartMs: eventMs,
 								Input:   c.Input,
 							}
-							pendingToolMap[c.ID] = len(gen.tools)
-							gen.tools = append(gen.tools, toolStep)
+							pendingToolMap[c.ID] = len(pendingGen.tools)
+							pendingGen.tools = append(pendingGen.tools, toolStep)
 						}
 					}
 				}
 
 				if event.Message.Usage != nil {
-					gen.step.Tokens = &TokenInfo{
-						Input:      event.Message.Usage.InputTokens,
-						Output:     event.Message.Usage.OutputTokens,
-						Total:      event.Message.Usage.InputTokens + event.Message.Usage.OutputTokens,
-						CacheRead:  event.Message.Usage.CacheReadInputTokens,
-						CacheWrite: event.Message.Usage.CacheCreationInputTokens,
+					if pendingGen.step.Tokens == nil {
+						pendingGen.step.Tokens = &TokenInfo{}
 					}
+					pendingGen.step.Tokens.Input += event.Message.Usage.InputTokens
+					pendingGen.step.Tokens.Output += event.Message.Usage.OutputTokens
+					pendingGen.step.Tokens.Total = pendingGen.step.Tokens.Input + pendingGen.step.Tokens.Output
+					pendingGen.step.Tokens.CacheRead += event.Message.Usage.CacheReadInputTokens
+					pendingGen.step.Tokens.CacheWrite += event.Message.Usage.CacheCreationInputTokens
 				}
 			}
-
-			pendingGen = gen
 
 		case "user":
 			if event.Message != nil {
